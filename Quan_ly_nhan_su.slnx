@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Quan_ly_nhan_su/Quan_ly_nhan_su.csproj" />
+  <Project Path="Quan_ly_nhan_su.Domain/Quan_ly_nhan_su.Domain.csproj" />
+  <Project Path="Quan_ly_nhan_su.Application/Quan_ly_nhan_su.Application.csproj" />
+  <Project Path="Quan_ly_nhan_su.Infrastructure/Quan_ly_nhan_su.Infrastructure.csproj" />
+</Solution>

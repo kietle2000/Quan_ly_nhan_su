@@ -1,0 +1,600 @@
+'use client';
+import { useState, useEffect } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { crmApi, employeeApi } from '@/lib/api';
+import { Plus, Globe, Phone, MessageSquare, Clock, AlignLeft, Send, FileSpreadsheet, Upload, CheckCircle, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
+
+const STATUS_COLORS: Record<string, string> = { New: 'badge-blue', Contacted: 'badge-cyan', Consulting: 'badge-orange', Meeting: 'badge-purple', Signed: 'badge-green', Lost: 'badge-red' };
+const STATUS_LABELS: Record<string, string> = {
+  New: 'Khách mới',
+  Contacted: 'Đã liên hệ',
+  Consulting: 'Đang tư vấn',
+  Meeting: 'Khách hẹn gặp',
+  Signed: 'Ký Hợp đồng',
+  Lost: 'Thất bại'
+};
+const KANBAN_COLS = ['New', 'Contacted', 'Consulting', 'Meeting', 'Signed', 'Lost'];
+
+export default function CrmPage() {
+  const { user } = useAuth();
+  const [leads, setLeads] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'Tiềm năng' | 'Khách cũ'>('Tiềm năng');
+  const [filterOwnerId, setFilterOwnerId] = useState<string>('');
+  
+  // Add Lead form
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ name: '', phone: '', facebookUrl: '', source: '', ownerId: '' });
+  
+  // Import Excel state
+  const [showImport, setShowImport] = useState(false);
+  const [importData, setImportData] = useState<any[]>([]);
+  const [selectedEmpIds, setSelectedEmpIds] = useState<string[]>([]);
+  const [importing, setImporting] = useState(false);
+  
+  // Detail modal
+  const [selectedLead, setSelectedLead] = useState<any>(null);
+  const [actContent, setActContent] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Status Change Modals
+  const [showSignedModal, setShowSignedModal] = useState<any>(null);
+  const [showLostModal, setShowLostModal] = useState<any>(null);
+  const [revenue, setRevenue] = useState<number | ''>('');
+  const [contractFile, setContractFile] = useState<string>('');
+  const [failureReason, setFailureReason] = useState<string>('Không đủ tài chính');
+
+  useEffect(() => {
+    employeeApi.getAll().then(r => setEmployees(r.data)).catch(() => {});
+  }, []);
+
+  const fetchLeads = async () => {
+    setLoading(true);
+    try {
+      const res = await crmApi.getLeads({ ownerId: filterOwnerId || undefined });
+      setLeads(res.data);
+    } catch {}
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchLeads(); }, [filterOwnerId]);
+
+  const exportToExcel = () => {
+    if (leads.length === 0) return alert('Không có dữ liệu để xuất!');
+    const exportData = leads.map(l => ({
+      'Tên khách hàng': l.name,
+      'Số điện thoại': l.phone,
+      'Nguồn': l.source || '',
+      'Ghi chú': l.notes || '',
+      'Trạng thái': STATUS_LABELS[l.status] || l.status,
+      'Người phụ trách': l.ownerName || 'Chưa phân bổ',
+      'Ngày tạo': new Date(l.createdAt).toLocaleDateString('vi-VN')
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "KhachHang");
+    XLSX.writeFile(wb, `DanhSachKhachHang_${new Date().getTime()}.xlsx`);
+  };
+
+  const handleAddLead = async (e: React.FormEvent) => {
+    e.preventDefault(); setSaving(true);
+    try {
+      const payload = { ...form, ownerId: form.ownerId || undefined };
+      await crmApi.createLead(payload);
+      setShowAdd(false); setForm({ name: '', phone: '', facebookUrl: '', source: '', ownerId: user?.id || '' }); fetchLeads();
+    } catch (err: any) { alert(err.response?.data?.error || err.response?.data?.title || 'Lỗi tạo lead'); }
+    setSaving(false);
+  };
+
+  const handleAddActivity = async (e: React.FormEvent) => {
+    e.preventDefault(); if (!selectedLead) return; setSaving(true);
+    try {
+      await crmApi.addActivity(selectedLead.id, { content: actContent, nextFollowUpDate: null });
+      setActContent('');
+      const r = await crmApi.getLeadById(selectedLead.id);
+      setSelectedLead(r.data);
+      fetchLeads();
+    } catch (err: any) { alert('Lỗi thêm nhật ký'); }
+    setSaving(false);
+  };
+
+  const updateStatus = async (id: string, status: string, additionalData: any = {}) => {
+    try {
+      const existingLead = leads.find(l => l.id === id) || selectedLead;
+      if (!existingLead) return;
+      
+      const payload = { ...existingLead, status, ...additionalData };
+      await crmApi.updateLead(id, payload);
+      
+      fetchLeads();
+      if (selectedLead && selectedLead.id === id) {
+        const r = await crmApi.getLeadById(id);
+        setSelectedLead(r.data);
+      }
+      setShowSignedModal(null);
+      setShowLostModal(null);
+      setRevenue('');
+      setContractFile('');
+    } catch { alert('Lỗi cập nhật trạng thái'); }
+  };
+
+  const viewLead = async (id: string) => {
+    try {
+      const r = await crmApi.getLeadById(id);
+      setSelectedLead(r.data);
+    } catch { alert('Không tải được thông tin KH'); }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const bstr = evt.target?.result;
+      const wb = XLSX.read(bstr, { type: 'binary' });
+      const wsname = wb.SheetNames[0];
+      const ws = wb.Sheets[wsname];
+      const data: any[] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      
+      const parsedLeads = [];
+      for (let i = 1; i < data.length; i++) {
+        const row = data[i];
+        if (!row || row.length < 2) continue; 
+        
+        const name = row[1] || '';
+        const truong = row[2] || '';
+        const lop = row[3] || '';
+        const phone = row[4] ? String(row[4]).trim() : '';
+        const nguyenVong = row[5] || '';
+        
+        if (!name && !phone) continue;
+
+        parsedLeads.push({
+          name: name,
+          phone: phone,
+          source: 'Import Excel',
+          notes: `Trường: ${truong} | Lớp: ${lop} | Nguyện vọng: ${nguyenVong}`
+        });
+      }
+      setImportData(parsedLeads);
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleImportSubmit = async () => {
+    if (importData.length === 0) return alert('Không có dữ liệu hợp lệ!');
+    if (selectedEmpIds.length === 0) return alert('Chưa chọn nhân viên nhận Khách hàng!');
+    
+    setImporting(true);
+    try {
+      await crmApi.importLeads({
+        leads: importData,
+        employeeIds: selectedEmpIds
+      });
+      alert('Nhập và chia Khách hàng thành công!');
+      setShowImport(false);
+      setImportData([]);
+      setSelectedEmpIds([]);
+      fetchLeads();
+    } catch {
+      alert('Lỗi khi import!');
+    }
+    setImporting(false);
+  };
+
+  const handleDeleteAll = async () => {
+    if (!window.confirm('CẢNH BÁO NGUY HIỂM: Bạn có CHẮC CHẮN muốn xóa toàn bộ danh sách Khách hàng không? Hành động này không thể hoàn tác!')) return;
+    try {
+      await crmApi.deleteAllLeads();
+      alert('Đã xóa toàn bộ Khách hàng!');
+      fetchLeads();
+    } catch {
+      alert('Lỗi khi xóa!');
+    }
+  };
+
+  const handleDeleteLead = async (id: string) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa khách hàng này?')) return;
+    try {
+      await crmApi.deleteLead(id);
+      setSelectedLead(null);
+      fetchLeads();
+    } catch {
+      alert('Lỗi khi xóa khách hàng!');
+    }
+  };
+
+  return (
+    <div className="section">
+      <div className="section-header">
+        <div>
+          <h1 className="page-title">CRM Quản lý Khách hàng</h1>
+          <p className="page-subtitle">Theo dõi hành trình tư vấn du học</p>
+        </div>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          {user?.role !== 'Employee' && (
+            <select 
+              className="form-input" 
+              value={filterOwnerId} 
+              onChange={e => setFilterOwnerId(e.target.value)}
+              style={{ width: 160, padding: '8px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)' }}
+            >
+              <option value="">Tất cả nhân viên</option>
+              {employees.filter(e => e.role !== 'Admin').map(emp => (
+                <option key={emp.id} value={emp.id}>{emp.fullName}</option>
+              ))}
+            </select>
+          )}
+
+          <button className="btn" style={{ background: '#3b82f6', color: 'white', border: 'none' }} onClick={exportToExcel}>
+            <Download size={16} /> Xuất Excel
+          </button>
+
+          {user?.role !== 'Employee' && (
+            <button className="btn" style={{ background: '#10b981', color: 'white', border: 'none' }} onClick={() => setShowImport(true)}>
+              <FileSpreadsheet size={16} /> Nhập từ Excel
+            </button>
+          )}
+          <button className="btn btn-primary" onClick={() => { setForm({ ...form, ownerId: user?.id || '' }); setShowAdd(true); }}><Plus size={16} /> Thêm khách hàng</button>
+
+          {user?.role === 'Admin' && (
+            <button className="btn" style={{ background: 'var(--accent-red)', color: 'white', border: 'none', marginLeft: 8 }} onClick={handleDeleteAll}>
+              Xóa tất cả
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', background: 'var(--bg-secondary)', borderRadius: 8, padding: 4, width: 'fit-content' }}>
+          {['Tiềm năng', 'Khách cũ'].map(tab => (
+            <button 
+              key={tab} 
+              className={`btn ${activeTab === tab ? 'btn-primary' : ''}`} 
+              style={{ background: activeTab !== tab ? 'transparent' : undefined, border: 'none' }} 
+              onClick={() => setActiveTab(tab as 'Tiềm năng' | 'Khách cũ')}
+            >
+              {tab === 'Tiềm năng' ? 'Khách hàng Tiềm năng' : 'Danh sách Khách cũ'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 40 }}><span className="spinner" style={{ width: 32, height: 32, borderWidth: 3, display: 'inline-block' }} /></div>
+      ) : (
+        <div style={{ display: 'flex', gap: 16, overflowX: 'auto', paddingBottom: 16 }}>
+          {(activeTab === 'Tiềm năng' ? ['New', 'Contacted', 'Consulting', 'Meeting'] : ['Signed', 'Lost']).map(col => {
+            const colLeads = leads.filter(l => l.status === col);
+            return (
+              <div key={col} className="kanban-col">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{STATUS_LABELS[col]}</h3>
+                  <span style={{ fontSize: 12, background: 'var(--bg-primary)', padding: '2px 8px', borderRadius: 12, color: 'var(--text-secondary)' }}>{colLeads.length}</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {colLeads.map(lead => (
+                    <div key={lead.id} className="kanban-card" onClick={() => viewLead(lead.id)}>
+                      <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{lead.name}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                        <Phone size={12} /> {lead.phone}
+                        {lead.facebookUrl && <a href={lead.facebookUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ color: 'var(--accent-blue)', marginLeft: 4 }}><Globe size={14} /></a>}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 11, background: 'var(--bg-hover)', padding: '2px 6px', borderRadius: 4, color: 'var(--text-muted)' }}>{lead.source || 'Tự nhiên'}</span>
+                        <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--accent-purple)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700 }} title={lead.ownerName}>
+                          {lead.ownerName?.charAt(0).toUpperCase()}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Add Lead Modal */}
+      {showAdd && (
+        <div className="modal-overlay" onClick={() => setShowAdd(false)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20 }}>Thêm khách hàng mới</h2>
+            <form onSubmit={handleAddLead}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div><label className="form-label">Tên khách hàng *</label><input className="form-input" value={form.name} onChange={e => setForm({...form, name: e.target.value})} required /></div>
+                  <div><label className="form-label">Số điện thoại *</label><input className="form-input" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} required /></div>
+                </div>
+                <div><label className="form-label">Link Facebook</label><input className="form-input" placeholder="https://fb.com/..." value={form.facebookUrl} onChange={e => setForm({...form, facebookUrl: e.target.value})} /></div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div><label className="form-label">Nguồn khách</label><input className="form-input" placeholder="Facebook, Google, Giới thiệu..." value={form.source} onChange={e => setForm({...form, source: e.target.value})} /></div>
+                  {user?.role !== 'Employee' && (
+                  <div>
+                    <label className="form-label">Người phụ trách</label>
+                    <select className="form-input" value={form.ownerId} onChange={e => setForm({...form, ownerId: e.target.value})}>
+                      <option value="">-- Chọn nhân viên --</option>
+                      {employees.map(e => <option key={e.id} value={e.id}>{e.fullName}</option>)}
+                    </select>
+                  </div>
+                  )}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowAdd(false)}>Hủy</button>
+                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Đang lưu...' : 'Thêm Khách hàng'}</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      )}
+
+      {showImport && (
+        <div className="modal-overlay" onClick={() => !importing && setShowImport(false)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 800 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>Nhập Khách hàng từ Excel & Chia Lead</h2>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+              <div>
+                <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>1. Tải lên file Excel</h3>
+                <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 120, border: '2px dashed var(--border)', borderRadius: 8, cursor: 'pointer', background: 'var(--bg-hover)', marginBottom: 16 }}>
+                  <Upload size={32} color="var(--text-muted)" style={{ marginBottom: 8 }} />
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center', padding: '0 16px' }}>
+                    Kéo thả hoặc click để chọn file .xlsx<br/>
+                    <small>(Cấu trúc cột: STT, Họ và tên, Trường, Lớp, SĐT, Nguyện vọng)</small>
+                  </span>
+                  <input type="file" accept=".xlsx, .xls" style={{ display: 'none' }} onChange={handleFileUpload} />
+                </label>
+
+                {importData.length > 0 && (
+                  <div style={{ padding: 12, background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: 8, fontSize: 13, color: 'var(--accent-green)', fontWeight: 500 }}>
+                    <CheckCircle size={14} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
+                    Đọc thành công {importData.length} khách hàng hợp lệ!
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>2. Chọn Nhân viên nhận Khách (Chia đều)</h3>
+                <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-secondary)', height: 200, overflowY: 'auto' }}>
+                  {employees.filter(e => e.role !== 'Admin').map(emp => (
+                    <label key={emp.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={selectedEmpIds.includes(emp.id)} 
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedEmpIds([...selectedEmpIds, emp.id]);
+                          else setSelectedEmpIds(selectedEmpIds.filter(id => id !== emp.id));
+                        }} 
+                        style={{ width: 16, height: 16, accentColor: 'var(--accent-blue)' }}
+                      />
+                      <span style={{ fontSize: 14, color: 'var(--text-primary)' }}>{emp.fullName}</span>
+                    </label>
+                  ))}
+                  {employees.filter(e => e.role !== 'Admin').length === 0 && <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Không có nhân viên nào.</div>}
+                </div>
+              </div>
+            </div>
+
+            {importData.length > 0 && (
+              <div style={{ marginTop: 24 }}>
+                <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Bản xem trước (Tối đa 5 khách hàng)</h3>
+                <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: 'var(--bg-secondary)' }}>
+                        <th style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>Họ tên</th>
+                        <th style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>Số điện thoại</th>
+                        <th style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>Ghi chú</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importData.slice(0, 5).map((l, i) => (
+                        <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: '8px 12px' }}>{l.name}</td>
+                          <td style={{ padding: '8px 12px' }}>{l.phone}</td>
+                          <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>{l.notes}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 30, justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowImport(false)} disabled={importing}>Hủy</button>
+              <button className="btn btn-primary" onClick={handleImportSubmit} disabled={importing || importData.length === 0 || selectedEmpIds.length === 0} style={{ padding: '10px 24px' }}>
+                {importing ? <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> : 'Xác nhận & Chia Khách'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lead Detail Modal */}
+      {selectedLead && (
+        <div className="modal-overlay" onClick={() => setSelectedLead(null)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 700, padding: 0, display: 'flex', flexDirection: 'column', maxHeight: '90vh' }}>
+            <div style={{ padding: '24px 24px 16px', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+                <div>
+                  <h2 style={{ fontSize: 20, fontWeight: 700, margin: '0 0 8px' }}>{selectedLead.name}</h2>
+                  <div style={{ display: 'flex', gap: 12, color: 'var(--text-secondary)', fontSize: 13 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Phone size={14} /> {selectedLead.phone}</span>
+                    {selectedLead.facebookUrl && <a href={selectedLead.facebookUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: 6 }}><Globe size={14} /> Facebook</a>}
+                    <span style={{ background: 'var(--bg-hover)', padding: '2px 8px', borderRadius: 4 }}>Nguồn: {selectedLead.source || 'Tự nhiên'}</span>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <select className="form-input" style={{ width: 140, fontWeight: 600, color: `var(--accent-${selectedLead.status === 'Signed' ? 'green' : selectedLead.status === 'Lost' ? 'red' : 'blue'})` }} value={selectedLead.status} onChange={e => {
+                    const newStatus = e.target.value;
+                    if (newStatus === 'Signed') setShowSignedModal(selectedLead);
+                    else if (newStatus === 'Lost') setShowLostModal(selectedLead);
+                    else updateStatus(selectedLead.id, newStatus);
+                  }}>
+                    {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  </select>
+                  {user?.role === 'Admin' && (
+                    <button className="btn" style={{ background: 'var(--accent-red)', color: 'white', border: 'none', padding: '0 12px' }} onClick={() => handleDeleteLead(selectedLead.id)}>
+                      Xóa
+                    </button>
+                  )}
+                </div>
+              </div>
+              
+              {selectedLead.notes && (
+                <div style={{ marginTop: 16, marginBottom: 16, padding: 12, background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: 8, fontSize: 13, color: 'var(--text-primary)' }}>
+                  <strong>Ghi chú (Từ Excel):</strong> {selectedLead.notes}
+                </div>
+              )}
+              
+              {/* Funnel Checklist */}
+              <div style={{ background: 'var(--bg-secondary)', padding: 16, borderRadius: 12, marginBottom: 20 }}>
+                <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: 'var(--text-primary)' }}>Tiến trình Phễu (Tự động tính KPI)</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {[
+                    { key: 'newAt', label: '1. Tiếp cận mới' },
+                    { key: 'contactedAt', label: '2. Đã kết nối thành công' },
+                    { key: 'consultingAt', label: '3. Tiềm năng cao (Đang tư vấn)' },
+                    { key: 'meetingAt', label: '4. Hẹn gặp / Lên văn phòng' },
+                    { key: 'signedAt', label: '5. Đã ký hợp đồng / Chốt cọc' },
+                  ].map(step => {
+                    const isChecked = !!selectedLead[step.key];
+                    return (
+                      <label key={step.key} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 14 }}>
+                        <input type="checkbox" checked={isChecked} onChange={async (e) => {
+                          const val = e.target.checked ? new Date().toISOString() : null;
+                          setSelectedLead({ ...selectedLead, [step.key]: val }); // Optimistic update
+                          
+                          if (step.key === 'signedAt' && e.target.checked) {
+                            setShowSignedModal(selectedLead);
+                          } else {
+                            await updateStatus(selectedLead.id, selectedLead.status, { [step.key]: val });
+                          }
+                        }} style={{ width: 16, height: 16 }} />
+                        <span style={{ fontWeight: isChecked ? 600 : 400, color: isChecked ? 'var(--accent-blue)' : 'var(--text-primary)' }}>{step.label}</span>
+                        {isChecked && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>- {new Date(selectedLead[step.key]).toLocaleDateString('vi-VN')}</span>}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, marginTop: 24, padding: 24, overflowY: 'auto', flex: 1, borderTop: '1px solid var(--border)' }}>
+              
+              {/* Left Column: Stage History / Audit Trail */}
+              <div>
+                <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--accent-purple)' }}><Clock size={16} /> Audit Trail: Lịch sử Chuyển đổi</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 0, position: 'relative' }}>
+                  <div style={{ position: 'absolute', left: 11, top: 10, bottom: 10, width: 2, background: 'var(--border)', zIndex: 0 }} />
+                  
+                  {/* Mock Data for UI Demonstration of Stage History */}
+                  {[
+                    { stage: 'Tiềm năng cao', user: selectedLead.ownerName || 'Hệ thống', time: selectedLead.consultingAt || new Date().toISOString() },
+                    { stage: 'Đã kết nối', user: selectedLead.ownerName || 'Hệ thống', time: selectedLead.contactedAt || new Date(Date.now() - 86400000).toISOString() },
+                    { stage: 'Tiếp cận mới', user: 'Hệ thống', time: selectedLead.newAt || new Date(Date.now() - 172800000).toISOString() },
+                  ].filter(h => h.time).map((h, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 16, position: 'relative', zIndex: 1, paddingBottom: 24 }}>
+                      <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--bg-card)', border: `2px solid var(--accent-purple)`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: -2 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent-purple)' }} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14 }}>Chuyển sang: {h.stage}</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Bởi: {h.user} • {new Date(h.time).toLocaleString('vi-VN')}</div>
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', paddingLeft: 40 }}>
+                    *Đây là bản xem trước của hệ thống lưu vết Database. Cần tích hợp C# Backend để lưu log thực tế.
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: Activity Logs */}
+              <div>
+                <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}><AlignLeft size={16} /> Nhật ký tư vấn</h3>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 24 }}>
+                  {selectedLead.activityLogs?.map((log: any) => (
+                  <div key={log.id} style={{ padding: 12, background: 'var(--bg-secondary)', borderRadius: 8, borderLeft: '3px solid var(--accent-blue)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontWeight: 600, fontSize: 13 }}>{log.employeeName}</span>
+                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}><Clock size={12} style={{ display: 'inline', verticalAlign: '-2px' }} /> {new Date(log.timestamp).toLocaleString('vi-VN')}</span>
+                    </div>
+                    <div style={{ fontSize: 14, color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>{log.content}</div>
+                  </div>
+                ))}
+                {(!selectedLead.activityLogs || selectedLead.activityLogs.length === 0) && (
+                  <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Chưa có nhật ký nào.</p>
+                )}
+              </div>
+
+                <form onSubmit={handleAddActivity} style={{ background: 'var(--bg-hover)', padding: 16, borderRadius: 12, border: '1px solid var(--border)' }}>
+                  <textarea className="form-input" rows={3} placeholder="Ghi chú nội dung trao đổi với khách hàng..." value={actContent} onChange={e => setActContent(e.target.value)} required style={{ marginBottom: 12, width: '100%' }} />
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> : <><Send size={14} /> Gửi nhật ký</>}</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Signed Modal */}
+      {showSignedModal && (
+        <div className="modal-overlay" onClick={() => setShowSignedModal(null)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20, color: 'var(--accent-green)' }}>Chúc mừng! Chốt khách thành công 🎉</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label className="form-label">Doanh thu thu về (VNĐ) *</label>
+                <input type="number" className="form-input" value={revenue} onChange={e => setRevenue(Number(e.target.value))} placeholder="Ví dụ: 15000000" />
+              </div>
+              <div>
+                <label className="form-label">Link File Hợp đồng</label>
+                <input type="text" className="form-input" value={contractFile} onChange={e => setContractFile(e.target.value)} placeholder="https://drive.google.com/..." />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowSignedModal(null)}>Hủy</button>
+              <button className="btn btn-primary" onClick={() => updateStatus(showSignedModal.id, 'Signed', { revenue: revenue ? Number(revenue) : 0, contractFile, signedAt: new Date().toISOString() })}>Xác nhận</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lost Modal */}
+      {showLostModal && (
+        <div className="modal-overlay" onClick={() => setShowLostModal(null)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20, color: 'var(--accent-red)' }}>Khách hàng từ chối</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label className="form-label">Lý do thất bại</label>
+                <select className="form-input" value={failureReason} onChange={e => setFailureReason(e.target.value)}>
+                  <option value="Không đủ tài chính">Không đủ tài chính</option>
+                  <option value="Không có nhu cầu">Không có nhu cầu</option>
+                  <option value="Chọn trung tâm khác">Chọn trung tâm khác</option>
+                  <option value="Không nghe máy">Không nghe máy</option>
+                  <option value="Sai số điện thoại">Sai số điện thoại</option>
+                  <option value="Chưa quyết định">Chưa quyết định</option>
+                  <option value="Khác">Lý do khác...</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowLostModal(null)}>Hủy</button>
+              <button className="btn btn-primary" onClick={() => updateStatus(showLostModal.id, 'Lost', { failureReason })}>Xác nhận</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
