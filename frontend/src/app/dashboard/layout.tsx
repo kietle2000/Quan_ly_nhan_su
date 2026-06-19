@@ -3,12 +3,13 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { attendanceApi, notificationApi } from '@/lib/api';
+import { attendanceApi, notificationApi, crmApi } from '@/lib/api';
 import {
   LayoutDashboard, Users, Building2, Briefcase, ClipboardList,
   FileText, BarChart3, Clock, Calendar, Bell, LogOut,
   ChevronLeft, ChevronRight, UserCheck, ShieldCheck, Activity,
-  TrendingUp, Menu, X, BookOpen, Star, Link as LinkIcon, GraduationCap
+  TrendingUp, Menu, X, BookOpen, Star, Link as LinkIcon, GraduationCap,
+  Sun, Moon, Palette
 } from 'lucide-react';
 
 const SIDEBAR_ITEMS = [
@@ -96,6 +97,119 @@ function CheckInWidget() {
   );
 }
 
+function HeaderTicker() {
+  const { user } = useAuth();
+  const [meetings, setMeetings] = useState<any[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    
+    const fetchMeetings = async () => {
+      try {
+        const res = await crmApi.getLeads();
+        const leadList = res.data || [];
+        
+        // Chỉ hiển thị cuộc hẹn chưa đến (appointmentTime >= hiện tại)
+        // Khi đã hết giờ hẹn → tự biến mất khỏi ticker
+        const now = Date.now();
+        const activeMeetings = leadList
+          .filter((l: any) => {
+            if (l.status !== 'Meeting' || !l.appointmentTime) return false;
+            const appTime = new Date(l.appointmentTime).getTime();
+            return !isNaN(appTime) && appTime >= now;
+          })
+          .sort((a: any, b: any) =>
+            new Date(a.appointmentTime).getTime() - new Date(b.appointmentTime).getTime()
+          );
+          
+        setMeetings(activeMeetings);
+      } catch (err) {
+        console.error('Lỗi khi lấy lịch hẹn:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMeetings();
+    
+    // Tải lại sau mỗi 2 phút
+    const interval = setInterval(fetchMeetings, 60000); // Làm mới mỗi 1 phút để phát hiện cuộc hẹn hết giờ
+    return () => clearInterval(interval);
+  }, [user]);
+
+  // Tự động chuyển đổi sau mỗi 5 giây nếu có nhiều cuộc hẹn
+  useEffect(() => {
+    if (meetings.length <= 1) return;
+    const interval = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % meetings.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [meetings]);
+
+  const formatMeetingText = (lead: any) => {
+    try {
+      const isoString = lead.appointmentTime;
+      // Đọc trực tiếp từ chuỗi để tránh lỗi múi giờ
+      if (isoString && isoString.includes('T')) {
+        const [dateStr, timeStr] = isoString.split('T');
+        const [, month, day] = dateStr.split('-');
+        const timePart = timeStr.substring(0, 5); // HH:mm
+        if (day && month && timePart) {
+          return `Hẹn gặp ${lead.name} lúc ${timePart} ${day}/${month}`;
+        }
+      }
+      // Fallback
+      const d = new Date(isoString);
+      const hours = String(d.getHours()).padStart(2, '0');
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      return `Hẹn gặp ${lead.name} lúc ${hours}:${minutes} ${day}/${month}`;
+    } catch {
+      return `Hẹn gặp ${lead.name}`;
+    }
+  };
+
+
+  if (loading) {
+    return (
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span className="spinner" style={{ width: 12, height: 12, borderWidth: 1.5 }} /> Đang tải lịch hẹn...
+      </div>
+    );
+  }
+
+  if (meetings.length === 0) {
+    return (
+      <div className="header-ticker-green">
+        <span>🌟</span> Chúc bạn một ngày làm việc hiệu quả!
+      </div>
+    );
+  }
+
+  const currentLead = meetings[currentIndex];
+
+  return (
+    <div 
+      className="header-ticker"
+      title="Click để mở CRM quản lý khách hàng"
+      onClick={() => window.location.href = '/dashboard/crm'}
+    >
+      <span style={{ animation: 'pulse 2s infinite', display: 'inline-block' }}>📅</span>
+      <span style={{ animation: 'slideIn 0.5s ease', display: 'inline-block' }} key={currentIndex}>
+        {formatMeetingText(currentLead)}
+      </span>
+      {meetings.length > 1 && (
+        <span style={{ fontSize: 9, background: 'var(--accent-purple)', color: 'white', padding: '1px 5px', borderRadius: 10, marginLeft: 4, fontWeight: 700 }}>
+          {currentIndex + 1}/{meetings.length}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, loading, logout } = useAuth();
   const pathname = usePathname();
@@ -125,7 +239,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const visibleItems = SIDEBAR_ITEMS.filter(item => item.roles.includes(user.role));
+  const visibleItems = SIDEBAR_ITEMS.filter(item => {
+    if (item.href === '/dashboard/classes') {
+      return item.roles.includes(user.role) || user.departmentId === 'dept-giaovien';
+    }
+    return item.roles.includes(user.role);
+  });
   const sidebarWidth = collapsed ? 72 : 256;
 
   const roleColors = { Admin: 'var(--accent-purple)', Manager: 'var(--accent-blue)', Employee: 'var(--accent-green)', Instructor: 'var(--accent-orange)' };
@@ -232,20 +351,39 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* Main */}
-      <div style={{ marginLeft: sidebarWidth, flex: 1, display: 'flex', flexDirection: 'column', transition: 'margin-left 0.2s ease' }}>
+      <div 
+        className="main-content" 
+        style={{ 
+          '--sidebar-width': collapsed ? '72px' : '256px',
+          flex: 1, 
+          display: 'flex', 
+          flexDirection: 'column' 
+        } as React.CSSProperties}
+      >
         {/* Top Header */}
         <header style={{
           background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)',
           height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '0 24px', position: 'sticky', top: 0, zIndex: 30
         }}>
-          <button onClick={() => setMobileOpen(!mobileOpen)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex' }}
-            className="md:hidden">
-            {mobileOpen ? <X size={22} /> : <Menu size={22} />}
-          </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          {/* Left section: mobile button */}
+          <div style={{ display: 'flex', alignItems: 'center', minWidth: 40 }}>
+            <button onClick={() => setMobileOpen(!mobileOpen)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex' }}
+              className="md:hidden">
+              {mobileOpen ? <X size={22} /> : <Menu size={22} />}
+            </button>
+          </div>
+
+          {/* Middle section: Header Ticker (Centered & Responsive) */}
+          <div style={{ flex: 1, display: 'flex', justifyContent: 'center', padding: '0 8px', overflow: 'hidden' }}>
+            <HeaderTicker />
+          </div>
+
+          {/* Right section: User info & widgets */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, minWidth: 40, justifyContent: 'flex-end' }}>
             <CheckInWidget />
+
             <Link href="/dashboard/notifications" style={{ position: 'relative', color: 'var(--text-secondary)' }}>
               <Bell size={22} />
               {unreadCount > 0 && (

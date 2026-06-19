@@ -52,6 +52,7 @@ interface Employee {
   id: string;
   fullName: string;
   role: string;
+  departmentId?: string;
 }
 
 interface Lead {
@@ -147,17 +148,44 @@ export default function ClassesPage() {
   const fetchAll = async () => {
     setLoading(true);
     try {
+      const isTeacher = user?.role === 'Instructor' || user?.departmentId === 'dept-giaovien';
+      const classesPromise = isTeacher
+        ? classApi.getByInstructor(user.id)
+        : classApi.getAll();
+
       const [classRes, studentRes, empRes, alertsRes] = await Promise.all([
-        classApi.getAll(),
+        classesPromise,
         classApi.getStudents(),
         employeeApi.getAll(),
         classApi.getTuitionAlerts()
       ]);
       
+      let studentList = studentRes.data;
+      if (isTeacher) {
+        // Extract unique students in teacher's classes
+        const myStudentsMap = new Map<string, any>();
+        classRes.data.forEach((c: any) => {
+          c.students?.forEach((s: any) => {
+            if (s.id) {
+              myStudentsMap.set(s.id, {
+                id: s.id,
+                fullName: s.fullName,
+                phone: s.phone,
+                email: s.email
+              });
+            }
+          });
+        });
+        studentList = Array.from(myStudentsMap.values());
+      }
+
       setClasses(classRes.data);
-      setStudents(studentRes.data);
+      setStudents(studentList);
       setEmployees(empRes.data);
-      setTuitionAlerts(alertsRes.data);
+      setTuitionAlerts(isTeacher
+        ? alertsRes.data.filter((a: any) => classRes.data.some((c: any) => c.id === a.classId))
+        : alertsRes.data
+      );
       
       // Load leads if Admin/Manager to link them
       if (user?.role === 'Admin' || user?.role === 'Manager') {
@@ -174,9 +202,9 @@ export default function ClassesPage() {
     fetchAll();
   }, [user]);
 
-  // Calculated Properties
+  // Calculated Properties: Lọc giáo viên thuộc phòng ban Giáo viên hoặc có role Instructor
   const instructors = employees.filter(
-    emp => emp.role === 'Instructor' || emp.role === 'Admin' || emp.role === 'Manager'
+    emp => emp.role === 'Instructor' || emp.departmentId === 'dept-giaovien'
   );
   
   const uniqueSubjects = Array.from(new Set(classes.map(c => c.subjectType))).filter(Boolean);

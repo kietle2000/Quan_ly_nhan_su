@@ -32,15 +32,7 @@ export default function LoginPage() {
     }
   };
 
-  const fillDemo = (role: string) => {
-    const creds = {
-      admin: { email: 'admin@nhanphu.edu.vn', password: 'adminPassword123' },
-      manager: { email: 'manager@nhanphu.edu.vn', password: 'managerPassword123' },
-      employee: { email: 'employee@nhanphu.edu.vn', password: 'employeePassword123' },
-    };
-    const c = creds[role as keyof typeof creds];
-    if (c) { setEmail(c.email); setPassword(c.password); }
-  };
+
 
   return (
     <div style={{
@@ -153,31 +145,7 @@ export default function LoginPage() {
           </form>
         </div>
 
-        {/* Demo accounts */}
-        <div style={{ marginTop: 20, animation: 'fadeInUp 0.5s ease 0.2s both' }}>
-          <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 12, marginBottom: 12 }}>
-            Tài khoản demo nhanh
-          </p>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {[
-              { role: 'admin', label: 'Admin', color: 'var(--accent-purple)' },
-              { role: 'manager', label: 'Manager', color: 'var(--accent-blue)' },
-              { role: 'employee', label: 'Employee', color: 'var(--accent-green)' },
-            ].map(({ role, label, color }) => (
-              <button key={role} onClick={() => fillDemo(role)}
-                style={{
-                  flex: 1, padding: '8px 4px', border: `1px solid ${color}33`,
-                  borderRadius: 8, background: `${color}11`, color, fontSize: 12,
-                  fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s ease'
-                }}
-                onMouseEnter={e => (e.currentTarget.style.background = `${color}22`)}
-                onMouseLeave={e => (e.currentTarget.style.background = `${color}11`)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
+
       </div>
     </div>
   );

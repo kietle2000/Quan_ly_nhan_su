@@ -4,14 +4,28 @@ import { useAuth } from '@/contexts/AuthContext';
 import { attendanceApi, employeeApi } from '@/lib/api';
 import { Calendar as CalIcon, Clock, CheckCircle, AlertCircle } from 'lucide-react';
 
+const getLocalDateString = (d = new Date()) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getFirstDayOfMonthString = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}-01`;
+};
+
 export default function AttendancePage() {
   const { user } = useAuth();
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
   // Filters
-  const [startDate, setStartDate] = useState(new Date(new Date().setDate(1)).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(getFirstDayOfMonthString());
+  const [endDate, setEndDate] = useState(getLocalDateString());
 
   const fetchLogs = async () => {
     setLoading(true);

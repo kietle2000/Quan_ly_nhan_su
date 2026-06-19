@@ -22,7 +22,7 @@ if %errorlevel% neq 0 (
 echo.
 echo [2/3] Dang tao file SQL Script khoi tao Database (create_database.sql)...
 echo.
-dotnet ef migrations script -p Quan_ly_nhan_su.Infrastructure/Quan_ly_nhan_su.Infrastructure.csproj -s Quan_ly_nhan_su/Quan_ly_nhan_su.csproj -o ./publish/create_database.sql --force
+dotnet ef migrations script -p Quan_ly_nhan_su.Infrastructure/Quan_ly_nhan_su.Infrastructure.csproj -s Quan_ly_nhan_su/Quan_ly_nhan_su.csproj -o ./publish/create_database.sql
 if %errorlevel% neq 0 (
     echo.
     echo [LOI] Khong the tao file script database. Kiem tra xem ban da cai dotnet-ef tool chua.

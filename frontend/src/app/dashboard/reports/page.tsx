@@ -5,9 +5,30 @@ import { reportApi, employeeApi } from '@/lib/api';
 import { FileText, Paperclip, CheckCircle, Upload, Plus } from 'lucide-react';
 import { getISOWeek, getYear } from 'date-fns';
 
+const getLocalDateString = (d = new Date()) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getDisplayUrl = (filePath: string) => {
+  if (!filePath) return '';
+  if (filePath.startsWith('blob:')) {
+    return filePath;
+  }
+  if (filePath.includes('drive.google.com')) {
+    const fileIdMatch = filePath.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || filePath.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (fileIdMatch && fileIdMatch[1]) {
+      return `https://drive.google.com/thumbnail?authuser=0&sz=s4000&id=${fileIdMatch[1]}`;
+    }
+  }
+  return filePath.startsWith('http') ? filePath : `http://localhost:5000${filePath}`;
+};
+
 export default function ReportsPage() {
   const { user } = useAuth();
-  const [filterDate, setFilterDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [filterDate, setFilterDate] = useState<string>(getLocalDateString());
   const [reports, setReports] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [selectedEmp, setSelectedEmp] = useState('');
@@ -15,7 +36,7 @@ export default function ReportsPage() {
   
   // Submit Form state
   const [showSubmit, setShowSubmit] = useState(false);
-  const [form, setForm] = useState<any>({ date: new Date().toISOString().split('T')[0], content: '', progress: 100, week: getISOWeek(new Date()), nextPlan: '', targetNew: 0, targetContacted: 0, targetConsulting: 0, targetMeeting: 0, targetSigned: 0, evalNew: '', evalContacted: '', evalConsulting: '', evalMeeting: '', evalSigned: '', failureReasonAnalysis: '' });
+  const [form, setForm] = useState<any>({ date: getLocalDateString(), content: '', progress: 100, week: getISOWeek(new Date()), nextPlan: '', targetNew: 0, targetContacted: 0, targetConsulting: 0, targetMeeting: 0, targetSigned: 0, evalNew: '', evalContacted: '', evalConsulting: '', evalMeeting: '', evalSigned: '', failureReasonAnalysis: '' });
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -31,12 +52,25 @@ export default function ReportsPage() {
   }, [isManagerOrAdmin]);
 
   const fetchReports = async () => {
-    setLoading(true);
+    const cacheKey = `cached_reports_${selectedEmp}_${filterDate}`;
+    const cachedData = typeof window !== 'undefined' ? localStorage.getItem(cacheKey) : null;
+    if (cachedData) {
+      const parsed = JSON.parse(cachedData);
+      const sorted = (parsed || []).sort((a: any, b: any) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
+      setReports(sorted);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     try {
       const params: any = isManagerOrAdmin && selectedEmp ? { employeeId: selectedEmp } : {};
       params.date = filterDate;
       const res = await reportApi.getDailyReports(params);
-      setReports(res.data);
+      const sorted = (res.data || []).sort((a: any, b: any) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
+      setReports(sorted);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(cacheKey, JSON.stringify(sorted));
+      }
     } catch {}
     setLoading(false);
   };
@@ -45,34 +79,98 @@ export default function ReportsPage() {
 
   const submitFeedback = async (id: string) => {
     if (!feedbackText.trim()) return;
-    setSubmittingFeedback(true);
+    const originalText = feedbackText;
+    setReplyingTo(null);
+    setFeedbackText('');
+
+    // Optimistically update feedback
+    setReports(prev => prev.map(r => {
+      if (r.id === id) {
+        return { ...r, adminFeedback: originalText };
+      }
+      return r;
+    }));
+
     try {
-      await reportApi.addDailyFeedback(id, feedbackText);
-      setReplyingTo(null);
-      setFeedbackText('');
+      await reportApi.addDailyFeedback(id, originalText);
       fetchReports();
     } catch (err) {
+      // Revert on error
+      setReports(prev => prev.map(r => {
+        if (r.id === id) {
+          return { ...r, adminFeedback: '' };
+        }
+        return r;
+      }));
       alert('Lỗi gửi phản hồi');
     }
-    setSubmittingFeedback(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault(); setSubmitting(true);
+    e.preventDefault();
+    setSubmitting(true);
+    
+    const tempId = 'temp-' + Date.now();
+    const tempReport = {
+      id: tempId,
+      type: 'Daily',
+      employeeId: user?.id || '',
+      employeeName: user?.fullName || 'Tôi',
+      date: form.date,
+      content: form.content,
+      progressPercentage: form.progress,
+      targetNew: form.targetNew || 0,
+      targetContacted: form.targetContacted || 0,
+      targetConsulting: form.targetConsulting || 0,
+      targetMeeting: form.targetMeeting || 0,
+      targetSigned: form.targetSigned || 0,
+      evalNew: form.evalNew || '',
+      evalContacted: form.evalContacted || '',
+      evalConsulting: form.evalConsulting || '',
+      evalMeeting: form.evalMeeting || '',
+      evalSigned: form.evalSigned || '',
+      failureReasonAnalysis: form.failureReasonAnalysis || '',
+      feedback: '',
+      adminFeedback: '',
+      attachments: file ? [{
+        id: 'temp-att-' + tempId,
+        fileName: file.name,
+        filePath: URL.createObjectURL(file),
+        fileType: file.type
+      }] : [],
+      createdAt: new Date().toISOString(),
+      isSubmitting: true
+    };
+
+    setShowSubmit(false);
+    const submittedFile = file;
+    setFile(null);
+    setForm({ date: getLocalDateString(), content: '', progress: 100, week: getISOWeek(new Date()), nextPlan: '', targetNew: 0, targetContacted: 0, targetConsulting: 0, targetMeeting: 0, targetSigned: 0, evalNew: '', evalContacted: '', evalConsulting: '', evalMeeting: '', evalSigned: '', failureReasonAnalysis: '' });
+
+    if (filterDate === tempReport.date && (!selectedEmp || selectedEmp === user?.id)) {
+      setReports(prev => [tempReport, ...prev]);
+    }
+
     try {
       const fd = new FormData();
-      fd.append('content', form.content);
-      if (file) fd.append('files', file);
-
-      fd.append('date', form.date);
-      fd.append('progressPercentage', form.progress.toString());
-      ['targetNew', 'targetContacted', 'targetConsulting', 'targetMeeting', 'targetSigned'].forEach(k => fd.append(k, form[k].toString()));
-      ['evalNew', 'evalContacted', 'evalConsulting', 'evalMeeting', 'evalSigned', 'failureReasonAnalysis'].forEach(k => fd.append(k, form[k]));
+      fd.append('content', tempReport.content);
+      if (submittedFile) fd.append('files', submittedFile);
+      fd.append('date', tempReport.date);
+      fd.append('progressPercentage', tempReport.progressPercentage.toString());
+      ['targetNew', 'targetContacted', 'targetConsulting', 'targetMeeting', 'targetSigned'].forEach(k => fd.append(k, (tempReport as any)[k].toString()));
+      ['evalNew', 'evalContacted', 'evalConsulting', 'evalMeeting', 'evalSigned', 'failureReasonAnalysis'].forEach(k => fd.append(k, (tempReport as any)[k]));
+      
       await reportApi.createDailyReport(fd as any);
-
-      setShowSubmit(false); setFile(null); fetchReports();
-      setForm({ date: new Date().toISOString().split('T')[0], content: '', progress: 100, week: getISOWeek(new Date()), nextPlan: '', targetNew: 0, targetContacted: 0, targetConsulting: 0, targetMeeting: 0, targetSigned: 0, evalNew: '', evalContacted: '', evalConsulting: '', evalMeeting: '', evalSigned: '', failureReasonAnalysis: '' });
-    } catch (err: any) { alert(err.response?.data?.error || 'Lỗi nộp báo cáo'); }
+      
+      const cacheKey = `cached_reports_${selectedEmp}_${filterDate}`;
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(cacheKey);
+      }
+      fetchReports();
+    } catch (err: any) {
+      setReports(prev => prev.filter(r => r.id !== tempId));
+      alert(err.response?.data?.error || 'Lỗi nộp báo cáo');
+    }
     setSubmitting(false);
   };
 
@@ -110,14 +208,18 @@ export default function ReportsPage() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {reports.map((r, i) => (
-              <div key={r.id || i} style={{ padding: 16, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg-card)' }}>
+              <div key={r.id || i} style={{ padding: 16, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg-card)', opacity: r.isSubmitting ? 0.7 : 1, position: 'relative' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{ width: 36, height: 36, background: 'var(--accent-blue)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700 }}>
                       {r.employeeName?.charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <div style={{ fontWeight: 600 }}>{r.employeeName}</div>
+                      <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {r.employeeName}
+                        {r.isSubmitting && <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />}
+                        {r.isSubmitting && <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>(Đang gửi...)</span>}
+                      </div>
                       <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                         {new Date(r.date).toLocaleDateString('vi-VN')}
                       </div>
@@ -142,13 +244,21 @@ export default function ReportsPage() {
                 {r.attachments && r.attachments.length > 0 && (
                   <div style={{ marginTop: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                     {r.attachments.map((a: any) => {
-                      const isImage = a.fileType?.startsWith('image/') || a.fileName?.match(/\.(jpeg|jpg|gif|png)$/i);
+                      const isImage = a.fileType?.startsWith('image/') || 
+                                      a.fileName?.match(/\.(jpeg|jpg|gif|png)$/i) ||
+                                      a.filePath?.includes('mime=image') ||
+                                      a.filePath?.match(/[?&]name=.*?\.(jpeg|jpg|gif|png)/i) ||
+                                      (a.filePath?.includes('drive.google.com') && 
+                                       !a.fileName?.match(/\.(pdf|docx|doc|xlsx|xls|zip|rar)$/i) && 
+                                       !a.filePath?.includes('mime=application'));
+                      const fileUrl = a.filePath;
+                      const displayUrl = getDisplayUrl(a.filePath);
                       return isImage ? (
-                        <a key={a.id} href={`http://localhost:5000${a.filePath}`} target="_blank" rel="noreferrer" style={{ display: 'block', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-                          <img src={`http://localhost:5000${a.filePath}`} alt={a.fileName} style={{ maxHeight: 200, maxWidth: '100%', objectFit: 'contain', display: 'block' }} />
+                        <a key={a.id} href={fileUrl} target="_blank" rel="noreferrer" style={{ display: 'block', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                          <img src={displayUrl} alt={a.fileName} style={{ maxHeight: 200, maxWidth: '100%', objectFit: 'contain', display: 'block' }} />
                         </a>
                       ) : (
-                        <a key={a.id} href={`http://localhost:5000${a.filePath}`} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'var(--bg-hover)', borderRadius: 20, border: '1px solid var(--border)', fontSize: 12, color: 'var(--text-primary)', textDecoration: 'none' }}>
+                        <a key={a.id} href={fileUrl} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'var(--bg-hover)', borderRadius: 20, border: '1px solid var(--border)', fontSize: 12, color: 'var(--text-primary)', textDecoration: 'none' }}>
                           <Paperclip size={14} color="var(--accent-blue)" /> {a.fileName}
                         </a>
                       );

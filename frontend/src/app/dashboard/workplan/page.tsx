@@ -20,6 +20,13 @@ interface WeeklyWorkPlan {
 const STATUS_COLORS: Record<string, string> = { Pending: 'badge-gray', InProgress: 'badge-blue', Completed: 'badge-green', Cancelled: 'badge-red' };
 const STATUS_LABELS: Record<string, string> = { Pending: 'Chưa làm', InProgress: 'Đang làm', Completed: 'Hoàn thành', Cancelled: 'Hủy bỏ' };
 
+const getLocalDateString = (d = new Date()) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export default function WorkPlanPage() {
   const { user } = useAuth();
   const [week, setWeek] = useState(getISOWeek(new Date()));
@@ -105,7 +112,7 @@ export default function WorkPlanPage() {
 
   const addItem = () => {
     if (!plan) return;
-    setPlan({ ...plan, items: [...(plan.items || []), { taskName: '', actionPlan: '', supporterId: null, deadline: new Date().toISOString().split('T')[0], kpi: '', status: 'Pending', notes: '' }] });
+    setPlan({ ...plan, items: [...(plan.items || []), { taskName: '', actionPlan: '', supporterId: null, deadline: getLocalDateString(), kpi: '', status: 'Pending', notes: '' }] });
   };
 
   const updateItem = (index: number, field: keyof WorkPlanItem, value: any) => {

@@ -16,6 +16,34 @@ const STATUS_LABELS: Record<string, string> = {
 };
 const KANBAN_COLS = ['New', 'Contacted', 'Consulting', 'Meeting', 'Signed', 'Lost'];
 
+const formatAppointmentTime = (isoString?: string) => {
+  if (!isoString) return '';
+  try {
+    // Đọc trực tiếp từ chuỗi để tránh lỗi múi giờ khi dùng Date object
+    // Định dạng chuỗi: "YYYY-MM-DDTHH:mm" hoặc "YYYY-MM-DDTHH:mm:ss..."
+    if (isoString.includes('T')) {
+      const [dateStr, timeStr] = isoString.split('T');
+      const [year, month, day] = dateStr.split('-');
+      const timePart = timeStr.substring(0, 5); // Lấy HH:mm
+      if (year && month && day && timePart) {
+        return `${timePart} ${day}/${month}/${year}`;
+      }
+    }
+    // Fallback dùng Date object nếu format khác
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return isoString;
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${hours}:${minutes} ${day}/${month}/${year}`;
+  } catch {
+    return isoString;
+  }
+};
+
+
 export default function CrmPage() {
   const { user } = useAuth();
   const [leads, setLeads] = useState<any[]>([]);
@@ -38,10 +66,13 @@ export default function CrmPage() {
   const [selectedLead, setSelectedLead] = useState<any>(null);
   const [actContent, setActContent] = useState('');
   const [saving, setSaving] = useState(false);
+  const [loadingLeadId, setLoadingLeadId] = useState<string | null>(null);
 
   // Status Change Modals
   const [showSignedModal, setShowSignedModal] = useState<any>(null);
   const [showLostModal, setShowLostModal] = useState<any>(null);
+  const [showMeetingModal, setShowMeetingModal] = useState<any>(null);
+  const [appointmentTime, setAppointmentTime] = useState<string>('');
   const [revenue, setRevenue] = useState<number | ''>('');
   const [contractFile, setContractFile] = useState<string>('');
   const [failureReason, setFailureReason] = useState<string>('Không đủ tài chính');
@@ -92,41 +123,51 @@ export default function CrmPage() {
   const handleAddActivity = async (e: React.FormEvent) => {
     e.preventDefault(); if (!selectedLead) return; setSaving(true);
     try {
-      await crmApi.addActivity(selectedLead.id, { content: actContent, nextFollowUpDate: null });
-      setActContent('');
+      // 1. Cập nhật các trường thông tin của Lead (status, checklists) trước
+      await crmApi.updateLead(selectedLead.id, selectedLead);
+
+      // 2. Nếu có nhập nội dung nhật ký, gửi tạo hoạt động mới
+      if (actContent.trim()) {
+        await crmApi.addActivity(selectedLead.id, { content: actContent.trim(), nextFollowUpDate: null });
+        setActContent('');
+      }
+
+      // 3. Tải lại dữ liệu mới nhất
       const r = await crmApi.getLeadById(selectedLead.id);
-      setSelectedLead(r.data);
+      // Giữ lại appointmentTime từ state hiện tại nếu API cũ chưa trả về trường này
+      const freshData = r.data;
+      if (!freshData.appointmentTime && selectedLead.appointmentTime) {
+        freshData.appointmentTime = selectedLead.appointmentTime;
+      }
+      setSelectedLead(freshData);
       fetchLeads();
-    } catch (err: any) { alert('Lỗi thêm nhật ký'); }
+      alert('Đã cập nhật trạng thái và gửi nhật ký thành công!');
+    } catch (err: any) { 
+      alert(err.response?.data?.error || err.message || 'Lỗi lưu thông tin'); 
+    }
     setSaving(false);
   };
 
-  const updateStatus = async (id: string, status: string, additionalData: any = {}) => {
-    try {
-      const existingLead = leads.find(l => l.id === id) || selectedLead;
-      if (!existingLead) return;
-      
-      const payload = { ...existingLead, status, ...additionalData };
-      await crmApi.updateLead(id, payload);
-      
-      fetchLeads();
-      if (selectedLead && selectedLead.id === id) {
-        const r = await crmApi.getLeadById(id);
-        setSelectedLead(r.data);
-      }
-      setShowSignedModal(null);
-      setShowLostModal(null);
-      setRevenue('');
-      setContractFile('');
-    } catch { alert('Lỗi cập nhật trạng thái'); }
-  };
 
   const viewLead = async (id: string) => {
+    setLoadingLeadId(id);
     try {
       const r = await crmApi.getLeadById(id);
-      setSelectedLead(r.data);
-    } catch { alert('Không tải được thông tin KH'); }
+      const leadData = r.data;
+      // Fallback: Giữ appointmentTime từ danh sách hiện tại nếu API cũ chưa trả về
+      if (!leadData.appointmentTime) {
+        const existingLead = leads.find(l => l.id === id);
+        if (existingLead?.appointmentTime) {
+          leadData.appointmentTime = existingLead.appointmentTime;
+        }
+      }
+      setSelectedLead(leadData);
+    } catch (err: any) { 
+      alert(err.response?.data?.error || err.message || 'Không tải được thông tin KH'); 
+    }
+    setLoadingLeadId(null);
   };
+
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -151,6 +192,18 @@ export default function CrmPage() {
         const nguyenVong = row[5] || '';
         
         if (!name && !phone) continue;
+
+        const nameClean = String(name).trim().toLowerCase();
+        const phoneClean = String(phone).trim().toLowerCase();
+        if (
+          nameClean === 'họ và tên' || 
+          nameClean === 'họ tên' || 
+          phoneClean === 'sđt' || 
+          phoneClean === 'số điện thoại' || 
+          phoneClean === 'sdt'
+        ) {
+          continue;
+        }
 
         parsedLeads.push({
           name: name,
@@ -179,8 +232,8 @@ export default function CrmPage() {
       setImportData([]);
       setSelectedEmpIds([]);
       fetchLeads();
-    } catch {
-      alert('Lỗi khi import!');
+    } catch (err: any) {
+      alert(err.response?.data?.error || err.message || 'Lỗi khi import!');
     }
     setImporting(false);
   };
@@ -191,8 +244,8 @@ export default function CrmPage() {
       await crmApi.deleteAllLeads();
       alert('Đã xóa toàn bộ Khách hàng!');
       fetchLeads();
-    } catch {
-      alert('Lỗi khi xóa!');
+    } catch (err: any) {
+      alert(err.response?.data?.error || err.message || 'Lỗi khi xóa!');
     }
   };
 
@@ -202,8 +255,8 @@ export default function CrmPage() {
       await crmApi.deleteLead(id);
       setSelectedLead(null);
       fetchLeads();
-    } catch {
-      alert('Lỗi khi xóa khách hàng!');
+    } catch (err: any) {
+      alert(err.response?.data?.error || err.message || 'Lỗi khi xóa khách hàng!');
     }
   };
 
@@ -276,21 +329,39 @@ export default function CrmPage() {
                   <span style={{ fontSize: 12, background: 'var(--bg-primary)', padding: '2px 8px', borderRadius: 12, color: 'var(--text-secondary)' }}>{colLeads.length}</span>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {colLeads.map(lead => (
-                    <div key={lead.id} className="kanban-card" onClick={() => viewLead(lead.id)}>
+                  {colLeads.map(lead => {
+                    const isCardLoading = loadingLeadId === lead.id;
+                    return (
+                      <div 
+                        key={lead.id} 
+                        className="kanban-card" 
+                        onClick={() => !loadingLeadId && viewLead(lead.id)}
+                        style={{ position: 'relative', opacity: isCardLoading ? 0.7 : 1, cursor: loadingLeadId ? 'wait' : 'pointer' }}
+                      >
+                        {isCardLoading && (
+                          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8 }}>
+                            <span className="spinner" style={{ width: 20, height: 20, borderWidth: 2 }} />
+                          </div>
+                        )}
                       <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{lead.name}</div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>
                         <Phone size={12} /> {lead.phone}
                         {lead.facebookUrl && <a href={lead.facebookUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ color: 'var(--accent-blue)', marginLeft: 4 }}><Globe size={14} /></a>}
                       </div>
+                      {lead.appointmentTime && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--accent-purple)', fontWeight: 600, marginBottom: 8 }}>
+                          <span>📅 Hẹn: {formatAppointmentTime(lead.appointmentTime)}</span>
+                        </div>
+                      )}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: 11, background: 'var(--bg-hover)', padding: '2px 6px', borderRadius: 4, color: 'var(--text-muted)' }}>{lead.source || 'Tự nhiên'}</span>
                         <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--accent-purple)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700 }} title={lead.ownerName}>
                           {lead.ownerName?.charAt(0).toUpperCase()}
                         </div>
                       </div>
-                    </div>
-                  ))}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -432,12 +503,43 @@ export default function CrmPage() {
                 <div style={{ display: 'flex', gap: 8 }}>
                   <select className="form-input" style={{ width: 140, fontWeight: 600, color: `var(--accent-${selectedLead.status === 'Signed' ? 'green' : selectedLead.status === 'Lost' ? 'red' : 'blue'})` }} value={selectedLead.status} onChange={e => {
                     const newStatus = e.target.value;
-                    if (newStatus === 'Signed') setShowSignedModal(selectedLead);
-                    else if (newStatus === 'Lost') setShowLostModal(selectedLead);
-                    else updateStatus(selectedLead.id, newStatus);
+                    if (newStatus === 'Signed') {
+                      setShowSignedModal(selectedLead);
+                    } else if (newStatus === 'Lost') {
+                      setShowLostModal(selectedLead);
+                    } else if (newStatus === 'Meeting') {
+                      setAppointmentTime(selectedLead.appointmentTime || '');
+                      setShowMeetingModal(selectedLead);
+                    } else {
+                      const nowStr = new Date().toISOString();
+                      const updated = { ...selectedLead, status: newStatus };
+                      if (newStatus === 'New') {
+                        updated.contactedAt = null;
+                        updated.consultingAt = null;
+                        updated.meetingAt = null;
+                        updated.signedAt = null;
+                      } else if (newStatus === 'Contacted') {
+                        if (!updated.contactedAt) updated.contactedAt = nowStr;
+                        updated.consultingAt = null;
+                        updated.meetingAt = null;
+                        updated.signedAt = null;
+                      } else if (newStatus === 'Consulting') {
+                        if (!updated.contactedAt) updated.contactedAt = nowStr;
+                        if (!updated.consultingAt) updated.consultingAt = nowStr;
+                        updated.meetingAt = null;
+                        updated.signedAt = null;
+                      } else if (newStatus === 'Meeting') {
+                        if (!updated.contactedAt) updated.contactedAt = nowStr;
+                        if (!updated.consultingAt) updated.consultingAt = nowStr;
+                        if (!updated.meetingAt) updated.meetingAt = nowStr;
+                        updated.signedAt = null;
+                      }
+                      setSelectedLead(updated);
+                    }
                   }}>
                     {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                   </select>
+
                   {user?.role === 'Admin' && (
                     <button className="btn" style={{ background: 'var(--accent-red)', color: 'white', border: 'none', padding: '0 12px' }} onClick={() => handleDeleteLead(selectedLead.id)}>
                       Xóa
@@ -449,6 +551,42 @@ export default function CrmPage() {
               {selectedLead.notes && (
                 <div style={{ marginTop: 16, marginBottom: 16, padding: 12, background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: 8, fontSize: 13, color: 'var(--text-primary)' }}>
                   <strong>Ghi chú (Từ Excel):</strong> {selectedLead.notes}
+                </div>
+              )}
+
+              {selectedLead.appointmentTime && (
+                <div style={{ marginTop: 12, marginBottom: 12, padding: 12, background: 'rgba(147, 51, 234, 0.1)', border: '1px solid rgba(147, 51, 234, 0.2)', borderRadius: 8, fontSize: 13, color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>
+                    <strong>📅 Lịch hẹn gặp:</strong> <span style={{ color: 'var(--accent-purple)', fontWeight: 700 }}>{formatAppointmentTime(selectedLead.appointmentTime)}</span>
+                  </span>
+                  <button 
+                    className="btn" 
+                    type="button"
+                    style={{ background: 'var(--accent-purple)', color: 'white', border: 'none', padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer' }} 
+                    onClick={() => {
+                      setAppointmentTime(selectedLead.appointmentTime || '');
+                      setShowMeetingModal(selectedLead);
+                    }}
+                  >
+                    Đổi lịch hẹn
+                  </button>
+                </div>
+              )}
+
+              {selectedLead.status === 'Meeting' && !selectedLead.appointmentTime && (
+                <div style={{ marginTop: 12, marginBottom: 12, padding: 12, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: 8, fontSize: 13, color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: 'var(--accent-red)', fontWeight: 600 }}>⚠️ Chưa đặt ngày giờ hẹn gặp!</span>
+                  <button 
+                    className="btn" 
+                    type="button"
+                    style={{ background: 'var(--accent-blue)', color: 'white', border: 'none', padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer' }} 
+                    onClick={() => {
+                      setAppointmentTime('');
+                      setShowMeetingModal(selectedLead);
+                    }}
+                  >
+                    Đặt lịch ngay
+                  </button>
                 </div>
               )}
               
@@ -466,15 +604,71 @@ export default function CrmPage() {
                     const isChecked = !!selectedLead[step.key];
                     return (
                       <label key={step.key} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 14 }}>
-                        <input type="checkbox" checked={isChecked} onChange={async (e) => {
-                          const val = e.target.checked ? new Date().toISOString() : null;
-                          setSelectedLead({ ...selectedLead, [step.key]: val }); // Optimistic update
+                        <input type="checkbox" checked={isChecked} onChange={(e) => {
+                          const isCheckedNow = e.target.checked;
+                          const val = isCheckedNow ? new Date().toISOString() : null;
+                          let newStatus = selectedLead.status;
                           
-                          if (step.key === 'signedAt' && e.target.checked) {
-                            setShowSignedModal(selectedLead);
-                          } else {
-                            await updateStatus(selectedLead.id, selectedLead.status, { [step.key]: val });
+                          // Determine corresponding status
+                          if (step.key === 'newAt') {
+                            if (!isCheckedNow) return; // cannot uncheck "New"
+                          } else if (step.key === 'contactedAt') {
+                            newStatus = isCheckedNow ? 'Contacted' : 'New';
+                          } else if (step.key === 'consultingAt') {
+                            newStatus = isCheckedNow ? 'Consulting' : 'Contacted';
+                          } else if (step.key === 'meetingAt') {
+                            newStatus = isCheckedNow ? 'Meeting' : 'Consulting';
+                          } else if (step.key === 'signedAt') {
+                            newStatus = isCheckedNow ? 'Signed' : 'Meeting';
                           }
+
+                          if (step.key === 'meetingAt' && isCheckedNow) {
+                            setAppointmentTime(selectedLead.appointmentTime || '');
+                            setShowMeetingModal(selectedLead);
+                            return;
+                          }
+
+                          if (step.key === 'signedAt' && isCheckedNow) {
+                            const updated = { ...selectedLead, [step.key]: val, status: 'Signed' };
+                            setSelectedLead(updated);
+                            setShowSignedModal(updated);
+                            return;
+                          }
+
+                          const updated = { ...selectedLead, [step.key]: val, status: newStatus };
+                          
+                          // If checking a higher stage, make sure lower stages are also checked
+                          if (isCheckedNow) {
+                            const nowStr = new Date().toISOString();
+                            if (step.key === 'signedAt') {
+                              if (!updated.newAt) updated.newAt = nowStr;
+                              if (!updated.contactedAt) updated.contactedAt = nowStr;
+                              if (!updated.consultingAt) updated.consultingAt = nowStr;
+                              if (!updated.meetingAt) updated.meetingAt = nowStr;
+                            } else if (step.key === 'meetingAt') {
+                              if (!updated.newAt) updated.newAt = nowStr;
+                              if (!updated.contactedAt) updated.contactedAt = nowStr;
+                              if (!updated.consultingAt) updated.consultingAt = nowStr;
+                            } else if (step.key === 'consultingAt') {
+                              if (!updated.newAt) updated.newAt = nowStr;
+                              if (!updated.contactedAt) updated.contactedAt = nowStr;
+                            } else if (step.key === 'contactedAt') {
+                              if (!updated.newAt) updated.newAt = nowStr;
+                            }
+                          } else {
+                            // If unchecking a lower stage, clear all higher stages as well
+                            if (step.key === 'contactedAt') {
+                              updated.consultingAt = null;
+                              updated.meetingAt = null;
+                              updated.signedAt = null;
+                            } else if (step.key === 'consultingAt') {
+                              updated.meetingAt = null;
+                              updated.signedAt = null;
+                            } else if (step.key === 'meetingAt') {
+                              updated.signedAt = null;
+                            }
+                          }
+                          setSelectedLead(updated);
                         }} style={{ width: 16, height: 16 }} />
                         <span style={{ fontWeight: isChecked ? 600 : 400, color: isChecked ? 'var(--accent-blue)' : 'var(--text-primary)' }}>{step.label}</span>
                         {isChecked && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>- {new Date(selectedLead[step.key]).toLocaleDateString('vi-VN')}</span>}
@@ -535,12 +729,102 @@ export default function CrmPage() {
               </div>
 
                 <form onSubmit={handleAddActivity} style={{ background: 'var(--bg-hover)', padding: 16, borderRadius: 12, border: '1px solid var(--border)' }}>
-                  <textarea className="form-input" rows={3} placeholder="Ghi chú nội dung trao đổi với khách hàng..." value={actContent} onChange={e => setActContent(e.target.value)} required style={{ marginBottom: 12, width: '100%' }} />
+                  <textarea className="form-input" rows={3} placeholder="Ghi chú nội dung trao đổi với khách hàng (Không bắt buộc)..." value={actContent} onChange={e => setActContent(e.target.value)} style={{ marginBottom: 12, width: '100%' }} />
                   <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                     <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> : <><Send size={14} /> Gửi nhật ký</>}</button>
                   </div>
                 </form>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Meeting Scheduler Modal */}
+      {showMeetingModal && (
+        <div className="modal-overlay" onClick={() => setShowMeetingModal(null)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20, color: 'var(--accent-blue)' }}>Đặt lịch hẹn gặp khách hàng 📅</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label className="form-label">📆 Chọn Ngày hẹn *</label>
+                  <input 
+                    type="date"
+                    className="form-input"
+                    value={appointmentTime ? appointmentTime.split('T')[0] : ''}
+                    min={new Date().toISOString().split('T')[0]}
+                    onChange={e => {
+                      const dateStr = e.target.value;
+                      const timeStr = appointmentTime ? (appointmentTime.split('T')[1] || '09:00') : '09:00';
+                      setAppointmentTime(dateStr ? `${dateStr}T${timeStr}` : '');
+                    }}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="form-label">🕐 Chọn Giờ hẹn (24h) *</label>
+                  <input 
+                    type="time"
+                    className="form-input"
+                    value={appointmentTime ? (appointmentTime.split('T')[1] || '') : ''}
+                    onChange={e => {
+                      const timeStr = e.target.value;
+                      const dateStr = appointmentTime ? (appointmentTime.split('T')[0] || new Date().toISOString().split('T')[0]) : new Date().toISOString().split('T')[0];
+                      setAppointmentTime(dateStr ? `${dateStr}T${timeStr}` : '');
+                    }}
+                    required
+                  />
+                </div>
+              </div>
+              {appointmentTime && appointmentTime.includes('T') && appointmentTime.split('T')[0] && appointmentTime.split('T')[1] && (
+                <div style={{ padding: '10px 14px', background: 'rgba(147, 51, 234, 0.08)', border: '1px solid rgba(147, 51, 234, 0.2)', borderRadius: 8, fontSize: 13, color: 'var(--accent-purple)', fontWeight: 600 }}>
+                  📅 Xác nhận: {(() => {
+                    const [dateStr, timeStr] = appointmentTime.split('T');
+                    const [y, m, d] = dateStr.split('-');
+                    return `${timeStr} ngày ${d}/${m}/${y}`;
+                  })()}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowMeetingModal(null)}>Hủy</button>
+              <button 
+                className="btn btn-primary" 
+                disabled={!appointmentTime || !appointmentTime.includes('T') || !appointmentTime.split('T')[0] || !appointmentTime.split('T')[1]}
+                onClick={() => { 
+                  const nowStr = new Date().toISOString();
+                  const updated = { 
+                    ...showMeetingModal, 
+                    status: 'Meeting', 
+                    appointmentTime,
+                    meetingAt: nowStr
+                  };
+                  if (!updated.newAt) updated.newAt = nowStr;
+                  if (!updated.contactedAt) updated.contactedAt = nowStr;
+                  if (!updated.consultingAt) updated.consultingAt = nowStr;
+                  
+                  // Save changes to detail view if open
+                  if (selectedLead && selectedLead.id === showMeetingModal.id) {
+                    setSelectedLead(updated);
+                  }
+                  
+                  // Optimistic updates
+                  setLeads(prev => prev.map(l => l.id === showMeetingModal.id ? updated : l));
+                  
+                  // Save to database
+                  crmApi.updateLead(showMeetingModal.id, updated)
+                    .then(() => {
+                      fetchLeads();
+                    })
+                    .catch(() => alert('Lỗi lưu lịch hẹn'));
+                    
+                  setShowMeetingModal(null); 
+                }}
+              >
+                Xác nhận
+              </button>
             </div>
           </div>
         </div>
@@ -563,7 +847,7 @@ export default function CrmPage() {
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary" onClick={() => setShowSignedModal(null)}>Hủy</button>
-              <button className="btn btn-primary" onClick={() => updateStatus(showSignedModal.id, 'Signed', { revenue: revenue ? Number(revenue) : 0, contractFile, signedAt: new Date().toISOString() })}>Xác nhận</button>
+              <button className="btn btn-primary" onClick={() => { setSelectedLead({ ...selectedLead, status: 'Signed', revenue: revenue ? Number(revenue) : 0, contractFile, signedAt: new Date().toISOString() }); setShowSignedModal(null); }}>Xác nhận</button>
             </div>
           </div>
         </div>
@@ -590,7 +874,7 @@ export default function CrmPage() {
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary" onClick={() => setShowLostModal(null)}>Hủy</button>
-              <button className="btn btn-primary" onClick={() => updateStatus(showLostModal.id, 'Lost', { failureReason })}>Xác nhận</button>
+              <button className="btn btn-primary" onClick={() => { setSelectedLead({ ...selectedLead, status: 'Lost', failureReason }); setShowLostModal(null); }}>Xác nhận</button>
             </div>
           </div>
         </div>

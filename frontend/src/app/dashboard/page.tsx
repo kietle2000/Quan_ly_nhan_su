@@ -140,7 +140,7 @@ export default function DashboardPage() {
             <StatCard icon={TrendingUp} label="KPI trung bình" value={`${summary.avgKpiProgress ?? 0}%`} color="var(--accent-purple)" sub="tiến độ hoàn thành" />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
             {/* Department chart */}
             <div className="glass-card" style={{ padding: 20 }}>
               <h3 style={{ marginBottom: 16, fontSize: 15, fontWeight: 700 }}>Nhân sự theo Phòng ban</h3>
@@ -181,7 +181,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 28 }}>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-7">
             {/* Gamification Leaderboard */}
             <div className="glass-card" style={{ padding: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
