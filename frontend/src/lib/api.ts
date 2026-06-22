@@ -141,11 +141,28 @@ export const classApi = {
   getById: (id: string) => apiClient.get(`/class/${id}`),
   getByInstructor: (instructorId: string) => apiClient.get(`/class/instructor/${instructorId}`),
   create: (data: unknown) => apiClient.post('/class', data),
+  updateClass: (id: string, data: unknown) => apiClient.put(`/class/${id}`, data),
+  deleteClass: (id: string) => apiClient.delete(`/class/${id}`),
   assignInstructor: (id: string, instructorId: string) =>
     apiClient.put(`/class/${id}/assign-instructor`, { instructorId }),
   enrollStudent: (classId: string, data: unknown) => apiClient.post(`/class/${classId}/enroll`, data),
+  updateEnrollment: (enrollmentId: string, data: unknown) => apiClient.put(`/class/students/${enrollmentId}`, data),
+  deleteEnrollment: (enrollmentId: string) => apiClient.delete(`/class/students/${enrollmentId}`),
   getTuitionAlerts: () => apiClient.get('/class/tuition-alerts'),
   getStudents: () => apiClient.get('/class/students'),
   createStudent: (data: unknown) => apiClient.post('/class/students', data),
+  
+  // Sessions & Attendance
+  getSessions: (classId: string) => apiClient.get('/class/sessions', { params: { classId } }),
+  createSession: (classId: string, data: unknown) => apiClient.post('/class/sessions', data, { params: { classId } }),
+  createSessionBulk: (classId: string, sessions: any[]) => apiClient.post('/class/sessions/bulk', { classId, sessions }),
+  deleteSession: (sessionId: string) => apiClient.delete('/class/sessions', { params: { sessionId } }),
+  deleteAllSessions: (classId: string) => apiClient.delete('/class/sessions/bulk', { params: { classId } }),
+  saveAttendance: (sessionId: string, data: unknown) => apiClient.put('/class/attendance/bulk', data, { params: { sessionId } }),
+};
+
+export const studentAuthApi = {
+  login: (data: unknown) => apiClient.post('/student/login', data),
+  checkIn: (sessionId: string) => apiClient.post('/student/check-in', { sessionId }),
 };
 

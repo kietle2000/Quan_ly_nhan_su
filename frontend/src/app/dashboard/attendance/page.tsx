@@ -18,6 +18,17 @@ const getFirstDayOfMonthString = () => {
   return `${year}-${month}-01`;
 };
 
+const formatTime = (timeStr: string) => {
+  if (!timeStr) return '—';
+  // Nếu backend trả về ISO datetime (ví dụ: 1899-12-30T08:53:58.000Z)
+  // Lấy trực tiếp phần time tránh bị Date tự cộng 7 tiếng múi giờ
+  if (timeStr.includes('T')) {
+    const timePart = timeStr.split('T')[1];
+    return timePart.slice(0, 8); // "08:53:58"
+  }
+  return timeStr;
+};
+
 export default function AttendancePage() {
   const { user } = useAuth();
   const [logs, setLogs] = useState<any[]>([]);
@@ -113,8 +124,8 @@ export default function AttendancePage() {
                   <tr key={log.id}>
                     {isManagerOrAdmin && <td style={{ fontWeight: 600 }}>{log.employeeName || '—'}</td>}
                     <td>{new Date(log.date).toLocaleDateString('vi-VN')}</td>
-                    <td style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: 14 }}>{log.checkInTime ? new Date(log.checkInTime).toLocaleTimeString('vi-VN') : '—'}</td>
-                    <td style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: 14 }}>{log.checkOutTime ? new Date(log.checkOutTime).toLocaleTimeString('vi-VN') : '—'}</td>
+                    <td style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: 14 }}>{formatTime(log.checkInTime)}</td>
+                    <td style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: 14 }}>{formatTime(log.checkOutTime)}</td>
                     <td style={{ fontWeight: 600, color: 'var(--accent-blue)' }}>{log.workHours ? `${log.workHours.toFixed(1)}h` : '—'}</td>
                     <td>{getStatusBadge(log.status)}</td>
                   </tr>

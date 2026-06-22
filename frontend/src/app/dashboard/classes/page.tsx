@@ -6,8 +6,9 @@ import {
   Plus, Search, GraduationCap, Users, Calendar, Clock,
   AlertTriangle, Check, BookOpen, UserCheck, Activity,
   Info, CreditCard, UserPlus, X, Trash2, Edit2, ShieldAlert,
-  Phone, Mail, ArrowUpRight
+  Phone, Mail, ArrowUpRight, Upload
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 interface ClassScheduleDto {
   id?: string;
@@ -35,9 +36,10 @@ interface ClassDto {
   instructorId: string;
   instructorName: string;
   startDate: string;
-  durationInWeeks: number;
+  endDate: string;
   schedules: ClassScheduleDto[];
   enrollments: EnrollmentDto[];
+  students: StudentDto[];
 }
 
 interface StudentDto {
@@ -96,7 +98,7 @@ export default function ClassesPage() {
   
   // Loading & UI State
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'classes' | 'students' | 'alerts'>('classes');
+  const [activeTab, setActiveTab] = useState<'classes' | 'students' | 'alerts' | 'history'>('classes');
   const [searchTerm, setSearchTerm] = useState('');
   const [subjectFilter, setSubjectFilter] = useState('');
   
@@ -110,6 +112,13 @@ export default function ClassesPage() {
   const [selectedClassForEnroll, setSelectedClassForEnroll] = useState<ClassDto | null>(null);
   const [selectedClassForAssign, setSelectedClassForAssign] = useState<ClassDto | null>(null);
   
+  // Edit State
+  const [isEditingClass, setIsEditingClass] = useState(false);
+  const [editingEnrollmentId, setEditingEnrollmentId] = useState<string | null>(null);
+  const [editingTuitionStatus, setEditingTuitionStatus] = useState<number>(3);
+  const [isDeletingClassId, setIsDeletingClassId] = useState<string | null>(null);
+  const [isDeletingStudentId, setIsDeletingStudentId] = useState<string | null>(null);
+  
   // Forms State
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -120,7 +129,7 @@ export default function ClassesPage() {
     subjectType: '',
     instructorId: '',
     startDate: '',
-    durationInWeeks: 8,
+    endDate: '',
     schedules: [] as Array<{ dayOfWeek: number; startTime: string; endTime: string }>
   });
   
@@ -135,6 +144,9 @@ export default function ClassesPage() {
   // Enroll Student Form
   const [enrollForm, setEnrollForm] = useState({
     studentId: '',
+    fullName: '',
+    phone: '',
+    email: '',
     tuitionStatus: 3, // Default Unpaid
     learningGoal: '',
     notes: ''
@@ -209,16 +221,44 @@ export default function ClassesPage() {
   
   const uniqueSubjects = Array.from(new Set(classes.map(c => c.subjectType))).filter(Boolean);
 
-  const getDayName = (day: number) => {
-    const found = DAYS_OF_WEEK.find(d => d.value === day);
-    return found ? found.label : `Thứ ${day}`;
+  const getDayName = (dayIdx: number) => {
+    const days = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+    return days[dayIdx] || '';
   };
 
-  const calculateEndDate = (startDateStr: string, durationWeeks: number) => {
+  const formatTime = (timeStr: string) => {
+    if (!timeStr) return '';
+    // Xử lý trường hợp backend trả về ISO datetime (chứa chữ T, vd: 1899-12-30T08:30:00.000Z)
+    // Giờ thực tế nằm trong chữ T, nếu dùng new Date() trình duyệt sẽ hiểu là giờ UTC và tự cộng 7 tiếng
+    if (timeStr.includes('T')) {
+      const timePart = timeStr.split('T')[1]; // "08:30:00.000Z"
+      return timePart.slice(0, 5); // "08:30"
+    }
+    return timeStr.slice(0, 5);
+  };
+
+  const calculateEndDate = (startDateStr: string, durationWeeks: number = 8) => {
     if (!startDateStr) return '';
     const date = new Date(startDateStr);
-    date.setDate(date.getDate() + durationWeeks * 7);
+    const duration = durationWeeks || 8; // fallback if undefined
+    date.setDate(date.getDate() + duration * 7);
     return date.toLocaleDateString('vi-VN');
+  };
+
+  const getClassStatus = (startDateStr: string, endDateStr: string) => {
+    if (!startDateStr) return 'Chưa bắt đầu';
+    
+    const start = new Date(startDateStr);
+    start.setHours(0, 0, 0, 0);
+    
+    const end = new Date(endDateStr || startDateStr);
+    end.setHours(23, 59, 59, 999);
+    
+    const now = new Date();
+    
+    if (now < start) return 'Chưa bắt đầu';
+    if (now > end) return 'Kết thúc';
+    return 'Đang diễn ra';
   };
 
   // Add Schedule Row to Form
@@ -247,6 +287,84 @@ export default function ClassesPage() {
   };
 
   // Submit Actions
+  const handleDeleteClass = async (id: string) => {
+    if (!confirm('Bạn có chắc chắn muốn xóa lớp học này? Hành động này không thể hoàn tác!')) return;
+    setIsDeletingClassId(id);
+    try {
+      await classApi.deleteClass(id);
+      setSelectedClass(null);
+      fetchAll();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Lỗi khi xóa lớp học');
+    }
+    setIsDeletingClassId(null);
+  };
+
+  const handleSaveClassEdit = async () => {
+    if (!selectedClass) return;
+    setSaving(true);
+    try {
+      const payload = {
+        className: classForm.className,
+        subjectType: classForm.subjectType,
+        instructorId: classForm.instructorId,
+        startDate: classForm.startDate ? new Date(classForm.startDate).toISOString() : '',
+        endDate: classForm.endDate ? new Date(classForm.endDate).toISOString() : '',
+        schedules: classForm.schedules.map(s => ({
+          dayOfWeek: Number(s.dayOfWeek),
+          startTime: s.startTime.length === 5 ? s.startTime + ':00' : s.startTime,
+          endTime: s.endTime.length === 5 ? s.endTime + ':00' : s.endTime
+        }))
+      };
+      await classApi.updateClass(selectedClass.id, payload);
+      setIsEditingClass(false);
+      fetchAll();
+      // Update local state so modal updates immediately without closing
+      setSelectedClass(prev => prev ? { ...prev, ...payload } : null);
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Lỗi khi cập nhật lớp học');
+    }
+    setSaving(false);
+  };
+
+  const handleRemoveStudent = async (enrollmentId: string) => {
+    if (!confirm('Bạn có chắc chắn muốn hủy ghi danh học viên này khỏi lớp?')) return;
+    setIsDeletingStudentId(enrollmentId);
+    try {
+      await classApi.deleteEnrollment(enrollmentId);
+      fetchAll();
+      // Remove from selectedClass.enrollments
+      setSelectedClass(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          enrollments: prev.enrollments.filter(e => e.id !== enrollmentId),
+          students: prev.students.filter(s => prev.enrollments.find(e => e.id === enrollmentId)?.studentId !== s.id)
+        };
+      });
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Lỗi khi xóa học viên khỏi lớp');
+    }
+    setIsDeletingStudentId(null);
+  };
+
+  const handleSaveStudentEdit = async (enrollmentId: string) => {
+    try {
+      await classApi.updateEnrollment(enrollmentId, { tuitionStatus: editingTuitionStatus });
+      setEditingEnrollmentId(null);
+      fetchAll();
+      setSelectedClass(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          enrollments: prev.enrollments.map(e => e.id === enrollmentId ? { ...e, tuitionStatus: editingTuitionStatus } : e)
+        };
+      });
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Lỗi khi cập nhật thông tin học viên');
+    }
+  };
+
   const handleCreateClass = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -256,8 +374,8 @@ export default function ClassesPage() {
         className: classForm.className,
         subjectType: classForm.subjectType,
         instructorId: classForm.instructorId,
-        startDate: new Date(classForm.startDate).toISOString(),
-        durationInWeeks: Number(classForm.durationInWeeks),
+        startDate: classForm.startDate ? new Date(classForm.startDate).toISOString() : '',
+        endDate: classForm.endDate ? new Date(classForm.endDate).toISOString() : '',
         schedules: classForm.schedules.map(s => ({
           dayOfWeek: Number(s.dayOfWeek),
           startTime: s.startTime + ':00',
@@ -272,7 +390,7 @@ export default function ClassesPage() {
         subjectType: '',
         instructorId: '',
         startDate: '',
-        durationInWeeks: 8,
+        endDate: '',
         schedules: []
       });
       fetchAll();
@@ -310,8 +428,40 @@ export default function ClassesPage() {
     setSaving(true);
     setError('');
     try {
+      let finalStudentId = enrollForm.studentId;
+
+      // Nếu không có studentId tức là nhập mới học viên, ta tạo học viên trước
+      if (!finalStudentId && enrollForm.fullName && enrollForm.phone) {
+        const createRes = await classApi.createStudent({
+          fullName: enrollForm.fullName,
+          phone: enrollForm.phone,
+          email: enrollForm.email || null,
+          leadId: null
+        });
+        
+        if (createRes.data && createRes.data.id) {
+          finalStudentId = createRes.data.id;
+        } else if (createRes.data && createRes.data.data && createRes.data.data.id) {
+          finalStudentId = createRes.data.data.id;
+        } else {
+          // Fallback: Load lại danh sách học viên để lấy ID
+          const allStudentsRes = await classApi.getStudents();
+          const studentList = allStudentsRes.data?.data || allStudentsRes.data || [];
+          const created = studentList.find((s: any) => s.phone === enrollForm.phone);
+          if (created) {
+            finalStudentId = created.id;
+          } else {
+            throw new Error('Không thể lấy được ID học viên mới, vui lòng tải lại trang.');
+          }
+        }
+      }
+
+      if (!finalStudentId) {
+        throw new Error('Vui lòng chọn hoặc nhập đủ thông tin học viên');
+      }
+
       const payload = {
-        studentId: enrollForm.studentId,
+        studentId: finalStudentId,
         tuitionStatus: Number(enrollForm.tuitionStatus),
         learningGoal: enrollForm.learningGoal || null,
         notes: enrollForm.notes || null
@@ -319,13 +469,135 @@ export default function ClassesPage() {
       
       await classApi.enrollStudent(selectedClassForEnroll.id, payload);
       setShowEnrollStudent(false);
-      setEnrollForm({ studentId: '', tuitionStatus: 3, learningGoal: '', notes: '' });
+      setEnrollForm({ studentId: '', fullName: '', phone: '', email: '', tuitionStatus: 3, learningGoal: '', notes: '' });
       setSelectedClassForEnroll(null);
       fetchAll();
     } catch (err: any) {
-      setError(err.response?.data?.error || err.response?.data?.title || 'Lỗi khi thêm học viên vào lớp');
+      setError(err.response?.data?.error || err.response?.data?.title || err.message || 'Lỗi khi thêm học viên vào lớp');
     }
     setSaving(false);
+  };
+
+  const handleExcelImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selectedClassForEnroll) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setSaving(true);
+    setError('');
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+        
+        let successCount = 0;
+        let failCount = 0;
+        
+        for (const row of data as any[]) {
+          const fullName = row['Họ tên'] || row['Họ và tên'] || row['Name'];
+          const phone = String(row['Số điện thoại'] || row['SĐT'] || row['Phone'] || Math.floor(Math.random()*1000000000));
+          const email = row['Email'];
+          const isPaidStr = String(row['Đóng học phí'] || row['Học phí'] || '').toLowerCase();
+          const isPaid = isPaidStr.includes('rồi') || isPaidStr.includes('đủ') || isPaidStr.includes('1');
+          const isPartial = isPaidStr.includes('một phần') || isPaidStr.includes('phân nửa');
+          
+          let tuitionStatus = 3; // Chưa đóng
+          if (isPaid) tuitionStatus = 1;
+          else if (isPartial) tuitionStatus = 2;
+          
+          if (!fullName) continue;
+
+          try {
+            // 1. Tạo học viên
+            const studentRes = await classApi.createStudent({
+              fullName,
+              phone,
+              email: email || null,
+              leadId: null
+            });
+            
+            // Tìm lại ID học viên vừa tạo. Nếu API trả về ID thì dùng luôn.
+            // Do backend Apps Script có thể chưa return object chuẩn, ta sẽ fetch lại danh sách students để an toàn
+            // Nhưng để tối ưu, giả sử API tạo xong return luôn bản ghi
+          } catch (err) {
+            console.error('Lỗi tạo học viên:', err);
+          }
+        }
+        
+        // Vì Apps Script có thể không trả về ID ngay lập tức, cách tốt nhất là tải lại danh sách học viên
+        const allStudentsRes = await classApi.getStudents();
+        const allStudents = allStudentsRes.data || [];
+        
+        // 2. Ghi danh các học viên vừa tạo vào lớp
+        for (const row of data as any[]) {
+          const phone = String(row['Số điện thoại'] || row['SĐT'] || row['Phone']);
+          const matchStudent = allStudents.find((s: any) => s.phone === phone);
+          
+          if (matchStudent) {
+            const isPaidStr = String(row['Đóng học phí'] || row['Học phí'] || '').toLowerCase();
+            const isPaid = isPaidStr.includes('rồi') || isPaidStr.includes('đủ') || isPaidStr.includes('1');
+            const isPartial = isPaidStr.includes('một phần') || isPaidStr.includes('phân nửa');
+            
+            let tuitionStatus = 3;
+            if (isPaid) tuitionStatus = 1;
+            else if (isPartial) tuitionStatus = 2;
+
+            try {
+              // Enroll
+              await classApi.enrollStudent(selectedClassForEnroll.id, {
+                studentId: matchStudent.id,
+                tuitionStatus,
+                learningGoal: row['Địa chỉ'] ? `Địa chỉ: ${row['Địa chỉ']}` : null,
+                notes: row['Năm sinh'] ? `Năm sinh: ${row['Năm sinh']}` : null
+              });
+              successCount++;
+            } catch(e) { failCount++; }
+          }
+        }
+        
+        alert(`Đã nhập danh sách thành công!\nGhi danh thành công: ${successCount} học viên.\nLỗi: ${failCount}`);
+        fetchAll();
+        setShowEnrollStudent(false);
+      } catch (err: any) {
+        setError('Lỗi đọc file Excel: ' + err.message);
+      }
+      setSaving(false);
+      e.target.value = ''; // reset input
+    };
+    
+    reader.readAsBinaryString(file);
+  };
+
+  const handleExcelExport = (classObj: any) => {
+    if (!classObj) return;
+    
+    const exportData = classObj.enrollments?.map((e: any, index: number) => {
+      const student = students.find((s: any) => s.id === e.studentId);
+      return {
+        'STT': index + 1,
+        'Họ tên': e.studentName,
+        'Số điện thoại': student?.phone || '',
+        'Email': student?.email || '',
+        'Tình trạng học phí': e.tuitionStatus === 1 ? 'Đã đóng đủ' : e.tuitionStatus === 2 ? 'Đóng một phần' : 'Chưa đóng',
+        'Mục tiêu / Địa chỉ': e.learningGoal || '',
+        'Ghi chú / Năm sinh': e.notes || ''
+      };
+    }) || [];
+
+    if (exportData.length === 0) {
+      alert('Lớp học này chưa có học viên nào để xuất!');
+      return;
+    }
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Danh sách học viên");
+    XLSX.writeFile(wb, `Danh_sach_lop_${classObj.className.replace(/\s+/g, '_')}.xlsx`);
   };
 
   const handleAssignInstructor = async (e: React.FormEvent) => {
@@ -350,7 +622,11 @@ export default function ClassesPage() {
     const matchesSearch = c.className.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           c.instructorName.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesSubject = subjectFilter ? c.subjectType === subjectFilter : true;
-    return matchesSearch && matchesSubject;
+    
+    const status = getClassStatus(c.startDate, c.endDate);
+    const matchesTab = activeTab === 'history' ? status === 'Kết thúc' : status !== 'Kết thúc';
+    
+    return matchesSearch && matchesSubject && matchesTab;
   });
 
   const filteredStudents = students.filter(s => {
@@ -360,7 +636,7 @@ export default function ClassesPage() {
   });
 
   // KPI calculations
-  const totalClasses = classes.length;
+  const totalClasses = classes.filter(c => getClassStatus(c.startDate, c.endDate) !== 'Kết thúc').length;
   const totalStudents = students.length;
   const activeInstructors = new Set(classes.map(c => c.instructorId).filter(Boolean)).size;
   const totalAlertsCount = tuitionAlerts.length;
@@ -397,7 +673,7 @@ export default function ClassesPage() {
                     subjectType: '',
                     instructorId: '',
                     startDate: '',
-                    durationInWeeks: 8,
+                    endDate: '',
                     schedules: []
                   });
                   setError('');
@@ -453,7 +729,7 @@ export default function ClassesPage() {
           style={{ background: activeTab !== 'classes' ? 'transparent' : undefined, border: 'none' }}
           onClick={() => { setActiveTab('classes'); setSearchTerm(''); }}
         >
-          Lớp học ({classes.length})
+          Lớp học ({classes.filter(c => getClassStatus(c.startDate, c.endDate) !== 'Kết thúc').length})
         </button>
         <button 
           className={`btn ${activeTab === 'students' ? 'btn-primary' : ''}`}
@@ -473,6 +749,13 @@ export default function ClassesPage() {
           onClick={() => { setActiveTab('alerts'); setSearchTerm(''); }}
         >
           Nợ Học phí ({tuitionAlerts.length})
+        </button>
+        <button 
+          className={`btn ${activeTab === 'history' ? 'btn-primary' : ''}`}
+          style={{ background: activeTab !== 'history' ? 'transparent' : undefined, border: 'none' }}
+          onClick={() => { setActiveTab('history'); setSearchTerm(''); }}
+        >
+          Lịch sử ({classes.filter(c => getClassStatus(c.startDate, c.endDate) === 'Kết thúc').length})
         </button>
       </div>
 
@@ -511,7 +794,7 @@ export default function ClassesPage() {
       ) : (
         <>
           {/* TAB 1: Classes Grid */}
-          {activeTab === 'classes' && (
+          {(activeTab === 'classes' || activeTab === 'history') && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
               {filteredClasses.map(c => {
                 const enrolledCount = c.enrollments?.length || 0;
@@ -525,7 +808,15 @@ export default function ClassesPage() {
                     
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 10 }}>
-                        <span className="badge badge-blue">{c.subjectType || 'Chưa phân loại'}</span>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <span className="badge badge-blue">{c.subjectType || 'Chưa phân loại'}</span>
+                          {(() => {
+                            const status = getClassStatus(c.startDate, c.endDate);
+                            if (status === 'Chưa bắt đầu') return <span className="badge" style={{background: 'var(--accent-orange)', color: '#fff', fontSize: 11}}>Chưa bắt đầu</span>;
+                            if (status === 'Đang diễn ra') return <span className="badge" style={{background: 'var(--accent-green)', color: '#fff', fontSize: 11}}>Đang diễn ra</span>;
+                            return <span className="badge" style={{background: 'var(--text-muted)', color: '#fff', fontSize: 11}}>Kết thúc</span>;
+                          })()}
+                        </div>
                         <span className="badge badge-purple" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                           <Users size={11} /> Sĩ số: {enrolledCount}
                         </span>
@@ -540,7 +831,7 @@ export default function ClassesPage() {
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <Calendar size={14} color="var(--accent-green)" />
-                          <span>Khai giảng: {new Date(c.startDate).toLocaleDateString('vi-VN')} ({c.durationInWeeks} tuần)</span>
+                          <span>Thời gian: {new Date(c.startDate).toLocaleDateString('vi-VN')} {c.endDate && `đến ${new Date(c.endDate).toLocaleDateString('vi-VN')}`}</span>
                         </div>
                         {c.schedules && c.schedules.length > 0 && (
                           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
@@ -550,7 +841,7 @@ export default function ClassesPage() {
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 2, fontWeight: 600, color: 'var(--text-primary)' }}>
                                 {c.schedules.map((s, idx) => (
                                   <span key={idx}>
-                                    • {getDayName(s.dayOfWeek)}: {s.startTime.slice(0, 5)} - {s.endTime.slice(0, 5)}
+                                    • {getDayName(s.dayOfWeek)}: {formatTime(s.startTime)} - {formatTime(s.endTime)}
                                   </span>
                                 ))}
                               </div>
@@ -590,20 +881,38 @@ export default function ClassesPage() {
                       >
                         <Info size={13} /> Chi tiết
                       </button>
+                      <button 
+                        className="btn btn-secondary btn-sm" 
+                        style={{ flex: 1, justifyContent: 'center' }} 
+                        onClick={() => window.location.href = `/dashboard/classes/${c.id}/attendance`}
+                      >
+                        <Check size={13} /> Điểm danh
+                      </button>
                       {(user?.role === 'Admin' || user?.role === 'Manager') && (
-                        <button 
-                          className="btn btn-secondary btn-sm" 
-                          style={{ justifyContent: 'center' }}
-                          title="Gán Giảng viên"
-                          onClick={() => {
-                            setSelectedClassForAssign(c);
-                            setAssignForm({ instructorId: c.instructorId || '' });
-                            setError('');
-                            setShowAssignInstructor(true);
-                          }}
-                        >
-                          <Edit2 size={13} />
-                        </button>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <button 
+                            className="btn btn-secondary btn-sm" 
+                            style={{ justifyContent: 'center', padding: '4px 8px' }}
+                            title="Gán Giảng viên"
+                            onClick={() => {
+                              setSelectedClassForAssign(c);
+                              setAssignForm({ instructorId: c.instructorId || '' });
+                              setError('');
+                              setShowAssignInstructor(true);
+                            }}
+                          >
+                            <Edit2 size={13} />
+                          </button>
+                          <button 
+                            className="btn btn-danger btn-sm" 
+                            style={{ justifyContent: 'center', padding: '4px 8px' }}
+                            title="Xóa lớp học"
+                            disabled={isDeletingClassId === c.id}
+                            onClick={() => handleDeleteClass(c.id)}
+                          >
+                            {isDeletingClassId === c.id ? <span className="spinner" style={{width:13, height:13}}></span> : <Trash2 size={13} />}
+                          </button>
+                        </div>
                       )}
                       {(user?.role === 'Admin' || user?.role === 'Manager' || user?.role === 'Instructor') && (
                         <button 
@@ -611,7 +920,7 @@ export default function ClassesPage() {
                           style={{ flex: 1.2, justifyContent: 'center' }}
                           onClick={() => {
                             setSelectedClassForEnroll(c);
-                            setEnrollForm({ studentId: '', tuitionStatus: 3, learningGoal: '', notes: '' });
+                            setEnrollForm({ studentId: '', fullName: '', phone: '', email: '', tuitionStatus: 3, learningGoal: '', notes: '' });
                             setError('');
                             setShowEnrollStudent(true);
                           }}
@@ -770,46 +1079,131 @@ export default function ClassesPage() {
                 <span className="badge badge-blue" style={{ marginBottom: 6 }}>{selectedClass.subjectType}</span>
                 <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>{selectedClass.className}</h2>
               </div>
-              <button 
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }} 
-                onClick={() => setSelectedClass(null)}
-              >
-                <X size={20} />
-              </button>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                {(user?.role === 'Admin' || user?.role === 'Manager') && !isEditingClass && (
+                  <>
+                    <button 
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => {
+                        setClassForm({
+                          className: selectedClass.className,
+                          subjectType: selectedClass.subjectType,
+                          instructorId: selectedClass.instructorId,
+                          startDate: selectedClass.startDate ? selectedClass.startDate.split('T')[0] : '', 
+                          endDate: selectedClass.endDate ? selectedClass.endDate.split('T')[0] : '',
+                          schedules: selectedClass.schedules ? selectedClass.schedules.map(s => ({ dayOfWeek: s.dayOfWeek, startTime: formatTime(s.startTime), endTime: formatTime(s.endTime) })) : []
+                        });
+                        setIsEditingClass(true);
+                      }}
+                    >
+                      <Edit2 size={16} /> Sửa
+                    </button>
+                    <button 
+                      className="btn btn-danger btn-sm"
+                      disabled={isDeletingClassId === selectedClass.id}
+                      onClick={() => handleDeleteClass(selectedClass.id)}
+                    >
+                      {isDeletingClassId === selectedClass.id ? 'Đang xóa...' : <><Trash2 size={16} /> Xóa</>}
+                    </button>
+                  </>
+                )}
+                <button 
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', marginLeft: 8 }} 
+                  onClick={() => { setSelectedClass(null); setIsEditingClass(false); }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: 24 }}>
               {/* Left Column: Details & Schedules */}
               <div style={{ borderRight: '1px solid var(--border)', paddingRight: 20 }}>
-                <h3 style={{ fontSize: 14, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: 12 }}>Thông tin lớp học</h3>
-                
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13, marginBottom: 24 }}>
-                  <div>
-                    <div style={{ color: 'var(--text-muted)', marginBottom: 2 }}>Giảng viên phụ trách</div>
-                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{selectedClass.instructorName || 'Chưa phân công'}</div>
-                  </div>
-                  <div>
-                    <div style={{ color: 'var(--text-muted)', marginBottom: 2 }}>Ngày khai giảng</div>
-                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{new Date(selectedClass.startDate).toLocaleDateString('vi-VN')}</div>
-                  </div>
-                  <div>
-                    <div style={{ color: 'var(--text-muted)', marginBottom: 2 }}>Thời gian kết thúc (Dự kiến)</div>
-                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{calculateEndDate(selectedClass.startDate, selectedClass.durationInWeeks)} ({selectedClass.durationInWeeks} tuần)</div>
-                  </div>
-                </div>
-
-                <h3 style={{ fontSize: 14, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: 12 }}>Lịch học ca học</h3>
-                {selectedClass.schedules && selectedClass.schedules.length > 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {selectedClass.schedules.map((s, idx) => (
-                      <div key={idx} style={{ background: 'var(--bg-secondary)', padding: '8px 12px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <Clock size={15} color="var(--accent-orange)" />
-                        <span style={{ fontSize: 13, fontWeight: 600 }}>{getDayName(s.dayOfWeek)}: {s.startTime.slice(0, 5)} - {s.endTime.slice(0, 5)}</span>
+                {isEditingClass ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <div>
+                      <label className="form-label">Tên lớp học</label>
+                      <input type="text" className="form-input" value={classForm.className} onChange={e => setClassForm({ ...classForm, className: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="form-label">Môn học</label>
+                      <input type="text" className="form-input" value={classForm.subjectType} onChange={e => setClassForm({ ...classForm, subjectType: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="form-label">Giảng viên</label>
+                      <select className="form-input" value={classForm.instructorId} onChange={e => setClassForm({ ...classForm, instructorId: e.target.value })}>
+                        <option value="">-- Chọn giảng viên --</option>
+                        {instructors.map(ins => <option key={ins.id} value={ins.id}>{ins.fullName}</option>)}
+                      </select>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div>
+                        <label className="form-label">Ngày khai giảng</label>
+                        <input type="date" className="form-input" value={classForm.startDate} onChange={e => setClassForm({ ...classForm, startDate: e.target.value })} />
                       </div>
-                    ))}
+                      <div>
+                        <label className="form-label">Ngày kết thúc</label>
+                        <input type="date" className="form-input" value={classForm.endDate} onChange={e => setClassForm({ ...classForm, endDate: e.target.value })} />
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <label className="form-label" style={{ margin: 0 }}>Lịch học ca học</label>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={addScheduleRow}>+ Ca học</button>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {classForm.schedules.map((sch, index) => (
+                          <div key={index} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <select className="form-input" style={{ padding: '6px' }} value={sch.dayOfWeek} onChange={e => updateScheduleRow(index, 'dayOfWeek', Number(e.target.value))}>
+                              {DAYS_OF_WEEK.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                            </select>
+                            <input type="time" lang="en-GB" className="form-input" style={{ padding: '6px' }} value={sch.startTime} onChange={e => updateScheduleRow(index, 'startTime', e.target.value)} required />
+                            <input type="time" lang="en-GB" className="form-input" style={{ padding: '6px' }} value={sch.endTime} onChange={e => updateScheduleRow(index, 'endTime', e.target.value)} required />
+                            <button type="button" className="btn btn-danger btn-sm" onClick={() => removeScheduleRow(index)} style={{ padding: 6 }}><Trash2 size={14} /></button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+                      <button className="btn btn-primary" onClick={handleSaveClassEdit} disabled={saving}>{saving ? 'Đang lưu...' : 'Lưu thay đổi'}</button>
+                      <button className="btn btn-secondary" onClick={() => setIsEditingClass(false)}>Hủy</button>
+                    </div>
                   </div>
                 ) : (
-                  <div style={{ fontSize: 13, color: 'var(--text-muted)', fontStyle: 'italic' }}>Chưa thiết lập lịch học cho lớp này.</div>
+                  <>
+                    <h3 style={{ fontSize: 14, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: 12 }}>Thông tin lớp học</h3>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13, marginBottom: 24 }}>
+                      <div>
+                        <div style={{ color: 'var(--text-muted)', marginBottom: 2 }}>Giảng viên phụ trách</div>
+                        <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{selectedClass.instructorName || 'Chưa phân công'}</div>
+                      </div>
+                      <div>
+                        <div style={{ color: 'var(--text-muted)', marginBottom: 2 }}>Ngày khai giảng</div>
+                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{new Date(selectedClass.startDate).toLocaleDateString('vi-VN')}</div>
+                      </div>
+                      <div>
+                        <div style={{ color: 'var(--text-muted)', marginBottom: 2 }}>Ngày kết thúc</div>
+                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedClass.endDate ? new Date(selectedClass.endDate).toLocaleDateString('vi-VN') : 'Chưa thiết lập'}</div>
+                      </div>
+                    </div>
+
+                    <h3 style={{ fontSize: 14, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: 12 }}>Lịch học ca học</h3>
+                    {selectedClass.schedules && selectedClass.schedules.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {selectedClass.schedules.map((s, idx) => (
+                          <div key={idx} style={{ background: 'var(--bg-secondary)', padding: '8px 12px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <Clock size={15} color="var(--accent-orange)" />
+                            <span style={{ fontSize: 13, fontWeight: 600 }}>{getDayName(s.dayOfWeek)}: {formatTime(s.startTime)} - {formatTime(s.endTime)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 13, color: 'var(--text-muted)', fontStyle: 'italic' }}>Chưa thiết lập lịch học cho lớp này.</div>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -819,20 +1213,28 @@ export default function ClassesPage() {
                   <h3 style={{ fontSize: 14, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
                     Danh sách học viên ({selectedClass.enrollments?.length || 0})
                   </h3>
-                  {(user?.role === 'Admin' || user?.role === 'Manager' || user?.role === 'Instructor') && (
+                  <div style={{ display: 'flex', gap: 8 }}>
                     <button 
-                      className="btn btn-primary btn-sm"
-                      onClick={() => {
-                        setSelectedClassForEnroll(selectedClass);
-                        setEnrollForm({ studentId: '', tuitionStatus: 3, learningGoal: '', notes: '' });
-                        setError('');
-                        setShowEnrollStudent(true);
-                        setSelectedClass(null); // Close this modal
-                      }}
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => handleExcelExport(selectedClass)}
                     >
-                      + Thêm vào lớp
+                      <Upload size={14} style={{ transform: 'rotate(180deg)' }} /> Xuất Excel
                     </button>
-                  )}
+                    {(user?.role === 'Admin' || user?.role === 'Manager' || user?.role === 'Instructor') && (
+                      <button 
+                        className="btn btn-primary btn-sm"
+                        onClick={() => {
+                          setSelectedClassForEnroll(selectedClass);
+                          setEnrollForm({ studentId: '', fullName: '', phone: '', email: '', tuitionStatus: 3, learningGoal: '', notes: '' });
+                          setError('');
+                          setShowEnrollStudent(true);
+                          setSelectedClass(null); // Close this modal
+                        }}
+                      >
+                        + Thêm vào lớp
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div style={{ maxHeight: 350, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 10 }}>
@@ -842,6 +1244,9 @@ export default function ClassesPage() {
                         <th style={{ padding: '8px 12px' }}>Họ tên</th>
                         <th style={{ padding: '8px 12px' }}>Học phí</th>
                         <th style={{ padding: '8px 12px' }}>Ghi chú / Mục tiêu</th>
+                        {(user?.role === 'Admin' || user?.role === 'Manager') && (
+                          <th style={{ padding: '8px 12px', textAlign: 'right' }}>Thao tác</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
@@ -850,14 +1255,55 @@ export default function ClassesPage() {
                           <tr key={e.id}>
                             <td style={{ padding: '10px 12px', fontWeight: 600 }}>{e.studentName}</td>
                             <td style={{ padding: '10px 12px' }}>
-                              <span className={`badge ${TUITION_BADGES[e.tuitionStatus]}`} style={{ fontSize: 11, padding: '1px 6px' }}>
-                                {TUITION_LABELS[e.tuitionStatus]}
-                              </span>
+                              {editingEnrollmentId === e.id ? (
+                                <select 
+                                  className="form-input" 
+                                  style={{ padding: '4px 8px', fontSize: 12, width: '100px' }}
+                                  value={editingTuitionStatus}
+                                  onChange={ev => setEditingTuitionStatus(Number(ev.target.value))}
+                                >
+                                  {Object.entries(TUITION_LABELS).map(([k, v]) => (
+                                    <option key={k} value={k}>{v as string}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span className={`badge ${TUITION_BADGES[e.tuitionStatus]}`} style={{ fontSize: 11, padding: '1px 6px' }}>
+                                  {TUITION_LABELS[e.tuitionStatus]}
+                                </span>
+                              )}
                             </td>
                             <td style={{ padding: '10px 12px', color: 'var(--text-secondary)', fontSize: 12 }}>
                               <div><strong>Mục tiêu:</strong> {e.learningGoal || 'Chưa ghi nhận'}</div>
                               {e.notes && <div style={{ fontSize: 11, marginTop: 2, color: 'var(--text-muted)' }}><strong>Ghi chú:</strong> {e.notes}</div>}
                             </td>
+                            {(user?.role === 'Admin' || user?.role === 'Manager') && (
+                              <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                                {editingEnrollmentId === e.id ? (
+                                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                                    <button className="btn btn-primary btn-sm" style={{ padding: '4px 8px' }} onClick={() => handleSaveStudentEdit(e.id)}>Lưu</button>
+                                    <button className="btn btn-secondary btn-sm" style={{ padding: '4px 8px' }} onClick={() => setEditingEnrollmentId(null)}>Hủy</button>
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                                    <button 
+                                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-blue)' }} 
+                                      title="Sửa học phí"
+                                      onClick={() => { setEditingEnrollmentId(e.id); setEditingTuitionStatus(e.tuitionStatus); }}
+                                    >
+                                      <Edit2 size={14} />
+                                    </button>
+                                    <button 
+                                      style={{ background: 'none', border: 'none', cursor: isDeletingStudentId === e.id ? 'not-allowed' : 'pointer', color: isDeletingStudentId === e.id ? 'var(--text-muted)' : 'var(--accent-red)' }} 
+                                      title="Xóa khỏi lớp"
+                                      disabled={isDeletingStudentId === e.id}
+                                      onClick={() => handleRemoveStudent(e.id)}
+                                    >
+                                      {isDeletingStudentId === e.id ? <span style={{fontSize: 12}}>Đang xóa...</span> : <Trash2 size={14} />}
+                                    </button>
+                                  </div>
+                                )}
+                              </td>
+                            )}
                           </tr>
                         ))
                       ) : (
@@ -925,13 +1371,12 @@ export default function ClassesPage() {
                     />
                   </div>
                   <div>
-                    <label className="form-label">Thời lượng (Số tuần) *</label>
+                    <label className="form-label">Ngày kết thúc *</label>
                     <input 
-                      type="number" 
+                      type="date" 
                       className="form-input" 
-                      min={1} 
-                      value={classForm.durationInWeeks} 
-                      onChange={e => setClassForm({ ...classForm, durationInWeeks: Number(e.target.value) })} 
+                      value={classForm.endDate} 
+                      onChange={e => setClassForm({ ...classForm, endDate: e.target.value })} 
                       required 
                     />
                   </div>
@@ -981,6 +1426,7 @@ export default function ClassesPage() {
                         <div style={{ flex: 1 }}>
                           <input 
                             type="time" 
+                            lang="en-GB"
                             className="form-input" 
                             style={{ padding: '6px 8px' }}
                             value={sch.startTime}
@@ -992,6 +1438,7 @@ export default function ClassesPage() {
                         <div style={{ flex: 1 }}>
                           <input 
                             type="time" 
+                            lang="en-GB"
                             className="form-input" 
                             style={{ padding: '6px 8px' }}
                             value={sch.endTime}
@@ -1108,9 +1555,24 @@ export default function ClassesPage() {
       {showEnrollStudent && selectedClassForEnroll && (
         <div className="modal-overlay" onClick={() => !saving && setShowEnrollStudent(false)}>
           <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <div style={{ marginBottom: 16 }}>
-              <span className="badge badge-purple">Thêm Học viên</span>
-              <h2 style={{ fontSize: 18, fontWeight: 800, margin: '6px 0 0 0' }}>Ghi danh vào lớp: {selectedClassForEnroll.className}</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <span className="badge badge-purple">Thêm Học viên</span>
+                <h2 style={{ fontSize: 18, fontWeight: 800, margin: '6px 0 0 0' }}>Ghi danh vào lớp: {selectedClassForEnroll.className}</h2>
+              </div>
+              
+              <div>
+                <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
+                  <Upload size={14} /> Import Excel
+                  <input 
+                    type="file" 
+                    accept=".xlsx, .xls, .csv" 
+                    style={{ display: 'none' }} 
+                    onChange={handleExcelImport} 
+                    disabled={saving}
+                  />
+                </label>
+              </div>
             </div>
             
             {error && (
@@ -1121,22 +1583,60 @@ export default function ClassesPage() {
             
             <form onSubmit={handleEnrollStudent}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label className="form-label">Họ và tên *</label>
+                    <input 
+                      type="text" 
+                      className="form-input" 
+                      placeholder="Nhập họ tên học viên"
+                      value={enrollForm.fullName}
+                      onChange={e => setEnrollForm({ ...enrollForm, fullName: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">Số điện thoại *</label>
+                    <input 
+                      type="tel" 
+                      className="form-input" 
+                      placeholder="Nhập SĐT..."
+                      value={enrollForm.phone}
+                      onChange={e => {
+                        const val = e.target.value;
+                        // Tự động điền nếu SĐT đã có trên hệ thống
+                        const existing = students.find(s => s.phone === val);
+                        if (existing) {
+                          setEnrollForm({
+                            ...enrollForm,
+                            phone: val,
+                            fullName: existing.fullName,
+                            email: existing.email || '',
+                            studentId: existing.id
+                          });
+                        } else {
+                          setEnrollForm({ ...enrollForm, phone: val, studentId: '' });
+                        }
+                      }}
+                      required
+                    />
+                    {enrollForm.studentId && (
+                      <small style={{ color: 'var(--accent-green)', display: 'block', marginTop: 4 }}>
+                        <Check size={10} style={{ display: 'inline', marginRight: 2 }} /> Đã tìm thấy học viên trong hệ thống
+                      </small>
+                    )}
+                  </div>
+                </div>
+
                 <div>
-                  <label className="form-label">Chọn học viên *</label>
-                  <select 
-                    className="form-input"
-                    value={enrollForm.studentId}
-                    onChange={e => setEnrollForm({ ...enrollForm, studentId: e.target.value })}
-                    required
-                  >
-                    <option value="">-- Chọn học viên ghi danh --</option>
-                    {students
-                      // Filter out students already enrolled in this class
-                      .filter(s => !selectedClassForEnroll.enrollments?.some(e => e.studentId === s.id))
-                      .map(s => (
-                        <option key={s.id} value={s.id}>{s.fullName} ({s.phone})</option>
-                      ))}
-                  </select>
+                  <label className="form-label">Email (Tùy chọn)</label>
+                  <input 
+                    type="email" 
+                    className="form-input" 
+                    placeholder="email@example.com"
+                    value={enrollForm.email}
+                    onChange={e => setEnrollForm({ ...enrollForm, email: e.target.value })}
+                  />
                 </div>
 
                 <div>
