@@ -147,15 +147,21 @@ export default function WorkPlanPage() {
       const target = Number((newPlan as any)[r.t] || 0);
       const actual = Number((newPlan as any)[r.a] || 0);
       if (target === 0) {
-        (newPlan as any)[r.e] = 'Chưa đặt chỉ tiêu.';
+        if (actual > 0) {
+          (newPlan as any)[r.e] = `🟢 XUẤT SẮC: Đã có kết quả (${actual}) dù không đặt chỉ tiêu đầu tuần. Cần duy trì phong độ và phát huy!`;
+        } else {
+          (newPlan as any)[r.e] = 'Chưa đặt chỉ tiêu.';
+        }
       } else {
         const pct = (actual / target) * 100;
-        if (pct >= 100) {
-          (newPlan as any)[r.e] = 'Tuyệt vời, đã vượt/đạt chỉ tiêu đề ra. Cần duy trì phong độ hiện tại.';
+        if (pct >= 80) {
+          (newPlan as any)[r.e] = `🟢 ĐẠT / TỐT: Làm rất tốt! Tỷ lệ đạt ${pct.toFixed(1)}%. Tiếp tục duy trì phong độ và đẩy mạnh khai thác sâu tệp khách hàng này để chốt sale.`;
         } else if (pct >= 70) {
-          (newPlan as any)[r.e] = `Khá tốt (${pct.toFixed(1)}%). Cần cố gắng thêm một chút để hoàn thành 100% KPI.`;
+          (newPlan as any)[r.e] = `🟡 ĐẠT NHƯNG CHƯA ỔN ĐỊNH: Tương đối tốt (đạt ${pct.toFixed(1)}%). Đã bám sát mục tiêu nhưng cần nỗ lực ép số thêm một chút để hoàn thành 100% KPI. Chú ý theo dõi sát các khách hàng ở khâu này.`;
+        } else if (pct >= 60) {
+          (newPlan as any)[r.e] = `🟠 KHÔNG ĐẠT KỲ VỌNG: Hiệu suất đang dưới mức kỳ vọng (đạt ${pct.toFixed(1)}%). Khâu này đang bị chững lại và có dấu hiệu rớt khách. Cần tập trung cải thiện kỹ năng xử lý từ chối và nhờ Quản lý kèm cặp thêm.`;
         } else {
-          (newPlan as any)[r.e] = `Chưa đạt hiệu quả (${pct.toFixed(1)}%). Cần xem lại kịch bản làm việc ở khâu này.`;
+          (newPlan as any)[r.e] = `🔴 KHÔNG ĐẠT - BÁO ĐỘNG: Hiệu suất khâu này quá thấp (chỉ đạt ${pct.toFixed(1)}%). Yêu cầu rà soát lại ngay tệp data hoặc kịch bản gọi điện. Cần lên lịch trao đổi trực tiếp với Quản lý để tìm nguyên nhân và có kế hoạch khắc phục (PIP) cho tuần tới.`;
         }
       }
     });
