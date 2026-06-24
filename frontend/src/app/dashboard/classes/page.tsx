@@ -167,7 +167,7 @@ export default function ClassesPage() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const isTeacher = user?.role === 'Instructor' || user?.departmentId === 'dept-giaovien';
+      const isTeacher = (user?.role === 'Instructor' || user?.departmentId === 'dept-giaovien') && user?.role !== 'Admin' && user?.role !== 'Manager';
       const classesPromise = isTeacher
         ? classApi.getByInstructor(user.id)
         : classApi.getAll();
