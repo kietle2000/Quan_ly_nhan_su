@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogOut, BookOpen, Clock, Calendar, CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { LogOut, BookOpen, Clock, Calendar, CheckCircle, XCircle, AlertCircle, RefreshCw, BarChart2 } from 'lucide-react';
 import { classApi, studentAuthApi } from '@/lib/api';
 
 export default function StudentDashboard() {
@@ -55,10 +55,15 @@ export default function StudentDashboard() {
         c.enrollments && c.enrollments.some((e: any) => e.studentId === studentId)
       );
       
-      // 3. Lấy thông tin điểm danh cho từng lớp
+      // 3. Lấy thông tin điểm danh và điểm kiểm tra cho từng lớp
       const classesWithAttendance = await Promise.all(enrolledClasses.map(async (c: any) => {
-        const sessRes = await classApi.getSessions(c.id).catch(() => ({ data: [] }));
+        const [sessRes, testRes] = await Promise.all([
+          classApi.getSessions(c.id).catch(() => ({ data: [] })),
+          classApi.getTests(c.id).catch(() => ({ data: [] }))
+        ]);
+        
         const sessions = sessRes?.data || [];
+        const tests = testRes?.data || [];
         
         // Tính toán chuyên cần
         let presentCount = 0;
@@ -74,9 +79,19 @@ export default function StudentDashboard() {
           }
         });
         
+        // Lọc điểm của riêng học sinh này
+        const myTests = tests.map((t: any) => {
+          const myScore = t.scores?.find((s: any) => s.studentId === studentId);
+          return {
+            ...t,
+            myScore: myScore || null
+          };
+        });
+        
         return {
           ...c,
           sessions,
+          tests: myTests,
           attendanceStats: {
             total: sessions.length,
             present: presentCount,
@@ -294,6 +309,60 @@ export default function StudentDashboard() {
                                 <td style={{ padding: '12px 16px' }}>{session.topic || '---'}</td>
                                 <td style={{ padding: '12px 16px' }}>{att?.checkInTime ? new Date(att.checkInTime).toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'}) : '---'}</td>
                                 <td style={{ padding: '12px 16px', fontWeight: 600, color: statusColor }}>{statusLabel}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Kết quả học tập (Bài kiểm tra) */}
+                {c.tests && c.tests.length > 0 && (
+                  <div style={{ flex: '1 1 100%', marginTop: 16 }}>
+                    <h4 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <BarChart2 size={18} color="var(--accent-blue)" /> Kết quả học tập
+                    </h4>
+                    <div style={{ overflowX: 'auto', background: 'white', borderRadius: 12, border: '1px solid var(--border)' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 14 }}>
+                        <thead>
+                          <tr style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+                            <th style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>Ngày kiểm tra</th>
+                            <th style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>Tên bài kiểm tra</th>
+                            <th style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>Điểm số</th>
+                            <th style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>Nhận xét của giáo viên</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {c.tests.map((test: any, idx: number) => {
+                            const score = test.myScore?.score;
+                            const feedback = test.myScore?.feedback;
+                            const isGraded = score !== undefined && score !== null && score !== '';
+                            
+                            return (
+                              <tr key={test.id} style={{ borderBottom: idx < c.tests.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                                <td style={{ padding: '12px 16px' }}>{new Date(test.date).toLocaleDateString('vi-VN')}</td>
+                                <td style={{ padding: '12px 16px', fontWeight: 500 }}>{test.title}</td>
+                                <td style={{ padding: '12px 16px' }}>
+                                  {isGraded ? (
+                                    <span style={{ 
+                                      display: 'inline-block', 
+                                      padding: '4px 12px', 
+                                      borderRadius: 20, 
+                                      background: Number(score) >= 8 ? 'var(--accent-green)' : (Number(score) >= 5 ? 'var(--accent-blue)' : 'var(--accent-red)'),
+                                      color: 'white',
+                                      fontWeight: 700
+                                    }}>
+                                      {score}
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Chưa có điểm</span>
+                                  )}
+                                </td>
+                                <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
+                                  {feedback || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>---</span>}
+                                </td>
                               </tr>
                             );
                           })}

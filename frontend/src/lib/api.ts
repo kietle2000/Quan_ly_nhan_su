@@ -151,6 +151,10 @@ export const classApi = {
   getTuitionAlerts: () => apiClient.get('/class/tuition-alerts'),
   getStudents: () => apiClient.get('/class/students'),
   createStudent: (data: unknown) => apiClient.post('/class/students', data),
+  updateStudent: (studentId: string, data: unknown) => apiClient.put(`/class/students/manage/${studentId}`, data),
+  deleteStudent: (studentId: string) => apiClient.delete(`/class/students/manage/${studentId}`),
+  bulkDeleteStudents: (ids: string[]) => apiClient.post('/class/students/manage/bulk', { ids }),
+  bulkDeleteEnrollments: (ids: string[]) => apiClient.post('/class/enrollments/bulk', { ids }),
   
   // Sessions & Attendance
   getSessions: (classId: string) => apiClient.get('/class/sessions', { params: { classId } }),
@@ -159,6 +163,12 @@ export const classApi = {
   deleteSession: (sessionId: string) => apiClient.delete('/class/sessions', { params: { sessionId } }),
   deleteAllSessions: (classId: string) => apiClient.delete('/class/sessions/bulk', { params: { classId } }),
   saveAttendance: (sessionId: string, data: unknown) => apiClient.put('/class/attendance/bulk', data, { params: { sessionId } }),
+  
+  // Tests & Scores
+  getTests: (classId: string) => apiClient.get('/class/tests', { params: { classId } }),
+  createTest: (classId: string, data: { date: string; title: string }) => apiClient.post('/class/tests', data, { params: { classId } }),
+  deleteTest: (testId: string) => apiClient.delete('/class/tests', { params: { testId } }),
+  saveTestScores: (testId: string, scores: any[]) => apiClient.post('/class/test-scores', { testId, scores }),
 };
 
 export const studentAuthApi = {

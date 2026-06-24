@@ -6,7 +6,7 @@ import {
   Plus, Search, GraduationCap, Users, Calendar, Clock,
   AlertTriangle, Check, BookOpen, UserCheck, Activity,
   Info, CreditCard, UserPlus, X, Trash2, Edit2, ShieldAlert,
-  Phone, Mail, ArrowUpRight, Upload
+  Phone, Mail, ArrowUpRight, Upload, BarChart2
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -119,6 +119,13 @@ export default function ClassesPage() {
   const [isDeletingClassId, setIsDeletingClassId] = useState<string | null>(null);
   const [isDeletingStudentId, setIsDeletingStudentId] = useState<string | null>(null);
   
+  // Bulk & Global Edit State
+  const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
+  const [selectedAlerts, setSelectedAlerts] = useState<string[]>([]);
+  const [showEditStudent, setShowEditStudent] = useState(false);
+  const [editingGlobalStudent, setEditingGlobalStudent] = useState<StudentDto | null>(null);
+  const [editingGlobalAlert, setEditingGlobalAlert] = useState<EnrollmentDto | null>(null);
+  
   // Forms State
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -213,6 +220,12 @@ export default function ClassesPage() {
   useEffect(() => {
     fetchAll();
   }, [user]);
+  
+  // Reset selection when tab changes
+  useEffect(() => {
+    setSelectedStudents([]);
+    setSelectedAlerts([]);
+  }, [activeTab]);
 
   // Calculated Properties: Lọc giáo viên thuộc phòng ban Giáo viên hoặc có role Instructor
   const instructors = employees.filter(
@@ -298,6 +311,98 @@ export default function ClassesPage() {
       alert(err.response?.data?.error || 'Lỗi khi xóa lớp học');
     }
     setIsDeletingClassId(null);
+  };
+
+  const handleBulkDeleteStudents = async () => {
+    if (!selectedStudents.length) return;
+    if (!confirm(`Bạn có chắc chắn muốn xóa ${selectedStudents.length} học viên đã chọn?`)) return;
+    setIsDeletingStudentId('bulk-students');
+    try {
+      await classApi.bulkDeleteStudents(selectedStudents);
+      setSelectedStudents([]);
+      fetchAll();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Lỗi khi xóa học viên');
+    }
+    setIsDeletingStudentId(null);
+  };
+
+  const handleBulkDeleteAlerts = async () => {
+    if (!selectedAlerts.length) return;
+    if (!confirm(`Bạn có chắc chắn muốn xóa ${selectedAlerts.length} học viên khỏi danh sách (Huỷ ghi danh)?`)) return;
+    setIsDeletingStudentId('bulk-alerts');
+    try {
+      await classApi.bulkDeleteEnrollments(selectedAlerts);
+      setSelectedAlerts([]);
+      fetchAll();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Lỗi khi xóa báo động nợ');
+    }
+    setIsDeletingStudentId(null);
+  };
+
+  const handleDeleteGlobalStudent = async (id: string) => {
+    if (!confirm('Bạn có chắc chắn muốn xóa học viên này hoàn toàn khỏi hệ thống?')) return;
+    setIsDeletingStudentId(id);
+    try {
+      await classApi.deleteStudent(id);
+      setSelectedStudents(prev => prev.filter(sId => sId !== id));
+      fetchAll();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Lỗi khi xóa học viên');
+    }
+    setIsDeletingStudentId(null);
+  };
+
+  const handleDeleteGlobalAlert = async (enrollmentId: string) => {
+    if (!confirm('Bạn có chắc chắn muốn xóa ghi danh này?')) return;
+    setIsDeletingStudentId(enrollmentId);
+    try {
+      await classApi.deleteEnrollment(enrollmentId);
+      setSelectedAlerts(prev => prev.filter(sId => sId !== enrollmentId));
+      fetchAll();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Lỗi khi xóa ghi danh');
+    }
+    setIsDeletingStudentId(null);
+  };
+
+  const handleSaveGlobalStudentEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingGlobalStudent) return;
+    setSaving(true);
+    try {
+      await classApi.updateStudent(editingGlobalStudent.id, {
+        fullName: editingGlobalStudent.fullName,
+        phone: editingGlobalStudent.phone,
+        email: editingGlobalStudent.email,
+        leadId: editingGlobalStudent.leadId
+      });
+      setShowEditStudent(false);
+      setEditingGlobalStudent(null);
+      fetchAll();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Lỗi cập nhật học viên');
+    }
+    setSaving(false);
+  };
+
+  const handleSaveGlobalAlertEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingGlobalAlert) return;
+    setSaving(true);
+    try {
+      await classApi.updateEnrollment(editingGlobalAlert.id, {
+        tuitionStatus: editingGlobalAlert.tuitionStatus,
+        learningGoal: editingGlobalAlert.learningGoal,
+        notes: editingGlobalAlert.notes
+      });
+      setEditingGlobalAlert(null);
+      fetchAll();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Lỗi cập nhật báo động nợ');
+    }
+    setSaving(false);
   };
 
   const handleSaveClassEdit = async () => {
@@ -883,10 +988,19 @@ export default function ClassesPage() {
                       </button>
                       <button 
                         className="btn btn-secondary btn-sm" 
-                        style={{ flex: 1, justifyContent: 'center' }} 
+                        style={{ flex: 1, justifyContent: 'center', padding: '4px 6px' }} 
                         onClick={() => window.location.href = `/dashboard/classes/${c.id}/attendance`}
+                        title="Điểm danh"
                       >
                         <Check size={13} /> Điểm danh
+                      </button>
+                      <button 
+                        className="btn btn-secondary btn-sm" 
+                        style={{ flex: 1, justifyContent: 'center', padding: '4px 6px' }} 
+                        onClick={() => window.location.href = `/dashboard/classes/${c.id}/tests`}
+                        title="Điểm số"
+                      >
+                        <BarChart2 size={13} /> Điểm số
                       </button>
                       {(user?.role === 'Admin' || user?.role === 'Manager') && (
                         <div style={{ display: 'flex', gap: 4 }}>
@@ -943,15 +1057,43 @@ export default function ClassesPage() {
 
           {/* TAB 2: Students List Table */}
           {activeTab === 'students' && (
-            <div className="glass-card" style={{ overflowX: 'auto' }}>
+            <div className="glass-card" style={{ overflowX: 'auto', padding: 20 }}>
+              {selectedStudents.length > 0 && (
+                <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, padding: 12, background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: 8 }}>
+                  <span style={{ fontWeight: 600, color: 'var(--accent-red)' }}>Đã chọn {selectedStudents.length} học viên</span>
+                  <button 
+                    className="btn btn-danger btn-sm" 
+                    onClick={handleBulkDeleteStudents}
+                    disabled={isDeletingStudentId === 'bulk-students'}
+                  >
+                    {isDeletingStudentId === 'bulk-students' ? (
+                      <span style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span className="spinner" style={{ width: 14, height: 14 }} /> Đang xóa...
+                      </span>
+                    ) : (
+                      <><Trash2 size={14} /> Xóa học viên đã chọn</>
+                    )}
+                  </button>
+                </div>
+              )}
               <table className="data-table">
                 <thead>
                   <tr>
+                    <th style={{ width: 40, textAlign: 'center' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={selectedStudents.length === filteredStudents.length && filteredStudents.length > 0}
+                        onChange={e => setSelectedStudents(e.target.checked ? filteredStudents.map(s => s.id) : [])}
+                      />
+                    </th>
                     <th>Họ và tên</th>
                     <th>Số điện thoại</th>
                     <th>Email</th>
                     <th>Cơ hội CRM</th>
                     <th style={{ textAlign: 'center' }}>Số lớp học tham gia</th>
+                    {(user?.role === 'Admin' || user?.role === 'Manager') && (
+                      <th style={{ textAlign: 'right' }}>Thao tác</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -961,6 +1103,13 @@ export default function ClassesPage() {
                     
                     return (
                       <tr key={s.id}>
+                        <td style={{ textAlign: 'center' }}>
+                          <input 
+                            type="checkbox" 
+                            checked={selectedStudents.includes(s.id)}
+                            onChange={e => setSelectedStudents(prev => e.target.checked ? [...prev, s.id] : prev.filter(id => id !== s.id))}
+                          />
+                        </td>
                         <td style={{ fontWeight: 600 }}>{s.fullName}</td>
                         <td>
                           <a href={`tel:${s.phone}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-primary)', textDecoration: 'none' }}>
@@ -988,6 +1137,27 @@ export default function ClassesPage() {
                         <td style={{ textAlign: 'center', fontWeight: 700 }}>
                           <span className="badge badge-blue">{enrolledClassesCount} lớp</span>
                         </td>
+                        {(user?.role === 'Admin' || user?.role === 'Manager') && (
+                          <td style={{ textAlign: 'right' }}>
+                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                              <button 
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-blue)' }} 
+                                title="Sửa học viên"
+                                onClick={() => { setEditingGlobalStudent(s); setShowEditStudent(true); }}
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button 
+                                style={{ background: 'none', border: 'none', cursor: isDeletingStudentId === s.id ? 'not-allowed' : 'pointer', color: isDeletingStudentId === s.id ? 'var(--text-muted)' : 'var(--accent-red)' }} 
+                                title="Xóa học viên"
+                                disabled={isDeletingStudentId === s.id}
+                                onClick={() => handleDeleteGlobalStudent(s.id)}
+                              >
+                                {isDeletingStudentId === s.id ? <span style={{fontSize: 12}}>Đang xóa...</span> : <Trash2 size={14} />}
+                              </button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -1014,15 +1184,44 @@ export default function ClassesPage() {
                 </span>
               </div>
 
+              {selectedAlerts.length > 0 && (
+                <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, padding: 12, background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: 8 }}>
+                  <span style={{ fontWeight: 600, color: 'var(--accent-red)' }}>Đã chọn {selectedAlerts.length} học viên</span>
+                  <button 
+                    className="btn btn-danger btn-sm" 
+                    onClick={handleBulkDeleteAlerts}
+                    disabled={isDeletingStudentId === 'bulk-alerts'}
+                  >
+                    {isDeletingStudentId === 'bulk-alerts' ? (
+                      <span style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span className="spinner" style={{ width: 14, height: 14 }} /> Đang xóa...
+                      </span>
+                    ) : (
+                      <><Trash2 size={14} /> Xóa khỏi danh sách nợ (Huỷ ghi danh)</>
+                    )}
+                  </button>
+                </div>
+              )}
+
               <div style={{ overflowX: 'auto' }}>
                 <table className="data-table">
                   <thead>
                     <tr>
+                      <th style={{ width: 40, textAlign: 'center' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={selectedAlerts.length === tuitionAlerts.length && tuitionAlerts.length > 0}
+                          onChange={e => setSelectedAlerts(e.target.checked ? tuitionAlerts.map(a => a.id) : [])}
+                        />
+                      </th>
                       <th>Học viên</th>
                       <th>Lớp học</th>
                       <th>Tình trạng</th>
                       <th>Mục tiêu học tập</th>
                       <th>Ghi chú</th>
+                      {(user?.role === 'Admin' || user?.role === 'Manager') && (
+                        <th style={{ textAlign: 'right' }}>Thao tác</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -1030,6 +1229,13 @@ export default function ClassesPage() {
                       const student = students.find(s => s.id === alert.studentId);
                       return (
                         <tr key={alert.id}>
+                          <td style={{ textAlign: 'center' }}>
+                            <input 
+                              type="checkbox" 
+                              checked={selectedAlerts.includes(alert.id)}
+                              onChange={e => setSelectedAlerts(prev => e.target.checked ? [...prev, alert.id] : prev.filter(id => id !== alert.id))}
+                            />
+                          </td>
                           <td>
                             <div style={{ fontWeight: 600 }}>{alert.studentName}</div>
                             {student && (
@@ -1047,6 +1253,27 @@ export default function ClassesPage() {
                           </td>
                           <td style={{ fontSize: 13 }}>{alert.learningGoal || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Chưa ghi nhận</span>}</td>
                           <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{alert.notes || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Không có</span>}</td>
+                          {(user?.role === 'Admin' || user?.role === 'Manager') && (
+                            <td style={{ textAlign: 'right' }}>
+                              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                                <button 
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-blue)' }} 
+                                  title="Sửa trạng thái"
+                                  onClick={() => setEditingGlobalAlert(alert)}
+                                >
+                                  <Edit2 size={14} />
+                                </button>
+                                <button 
+                                  style={{ background: 'none', border: 'none', cursor: isDeletingStudentId === alert.id ? 'not-allowed' : 'pointer', color: isDeletingStudentId === alert.id ? 'var(--text-muted)' : 'var(--accent-red)' }} 
+                                  title="Huỷ ghi danh"
+                                  disabled={isDeletingStudentId === alert.id}
+                                  onClick={() => handleDeleteGlobalAlert(alert.id)}
+                                >
+                                  {isDeletingStudentId === alert.id ? <span style={{fontSize: 12}}>Đang xóa...</span> : <Trash2 size={14} />}
+                                </button>
+                              </div>
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
@@ -1751,6 +1978,138 @@ export default function ClassesPage() {
         </div>
       )}
 
+      {/* 6. Modal: Edit Global Student */}
+      {showEditStudent && editingGlobalStudent && (
+        <div className="modal-overlay" onClick={() => !saving && setShowEditStudent(false)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <h2 style={{ fontSize: 18, fontWeight: 800, marginBottom: 20 }}>Sửa Thông tin Học viên</h2>
+            
+            {error && (
+              <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, color: '#ef4444', fontSize: 13 }}>
+                {error}
+              </div>
+            )}
+            
+            <form onSubmit={handleSaveGlobalStudentEdit}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <label className="form-label">Họ và Tên *</label>
+                  <input 
+                    type="text" 
+                    className="form-input" 
+                    value={editingGlobalStudent.fullName} 
+                    onChange={e => setEditingGlobalStudent({ ...editingGlobalStudent, fullName: e.target.value })} 
+                    required 
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Số điện thoại *</label>
+                  <input 
+                    type="tel" 
+                    className="form-input" 
+                    value={editingGlobalStudent.phone} 
+                    onChange={e => setEditingGlobalStudent({ ...editingGlobalStudent, phone: e.target.value })} 
+                    required 
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Email</label>
+                  <input 
+                    type="email" 
+                    className="form-input" 
+                    value={editingGlobalStudent.email || ''} 
+                    onChange={e => setEditingGlobalStudent({ ...editingGlobalStudent, email: e.target.value })} 
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={() => setShowEditStudent(false)} 
+                  disabled={saving}
+                >
+                  Hủy
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={saving}>
+                  {saving ? <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> : 'Lưu thay đổi'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 7. Modal: Edit Global Alert (Tuition Status) */}
+      {editingGlobalAlert && (
+        <div className="modal-overlay" onClick={() => !saving && setEditingGlobalAlert(null)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <h2 style={{ fontSize: 18, fontWeight: 800, marginBottom: 20 }}>Sửa Trạng thái Học phí</h2>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+              Học viên: <strong>{editingGlobalAlert.studentName}</strong> - Lớp: <strong>{editingGlobalAlert.className}</strong>
+            </p>
+            
+            {error && (
+              <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, color: '#ef4444', fontSize: 13 }}>
+                {error}
+              </div>
+            )}
+            
+            <form onSubmit={handleSaveGlobalAlertEdit}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <label className="form-label">Trạng thái đóng học phí *</label>
+                  <select 
+                    className="form-input" 
+                    value={editingGlobalAlert.tuitionStatus}
+                    onChange={e => setEditingGlobalAlert({ ...editingGlobalAlert, tuitionStatus: Number(e.target.value) })}
+                    required
+                  >
+                    <option value={1}>Đã đóng đủ (Paid)</option>
+                    <option value={2}>Đóng một phần (Partial)</option>
+                    <option value={3}>Chưa đóng (Unpaid)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="form-label">Mục tiêu học tập</label>
+                  <input 
+                    type="text" 
+                    className="form-input" 
+                    value={editingGlobalAlert.learningGoal || ''}
+                    onChange={e => setEditingGlobalAlert({ ...editingGlobalAlert, learningGoal: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="form-label">Ghi chú thêm</label>
+                  <textarea 
+                    className="form-input" 
+                    rows={3}
+                    value={editingGlobalAlert.notes || ''}
+                    onChange={e => setEditingGlobalAlert({ ...editingGlobalAlert, notes: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={() => setEditingGlobalAlert(null)} 
+                  disabled={saving}
+                >
+                  Hủy
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={saving}>
+                  {saving ? <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> : 'Cập nhật Học phí'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
