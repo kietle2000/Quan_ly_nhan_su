@@ -42,17 +42,14 @@ export async function POST(request: Request) {
       }
 
       // Lấy Profile khách hàng từ Zalo qua PHP Proxy Việt Nam (iNET)
+      // Proxy tự quản lý token - không cần truyền token qua URL (tránh bị WAF chặn)
       let customerName = 'Zalo User ' + senderId.substring(0, 5);
       let customerAvatar = '';
       
       try {
-        const { getZaloToken } = await import('@/lib/zalo');
-        const token = await getZaloToken();
-        
-        // Gọi thẳng PHP proxy trên máy chủ Việt Nam (iNET) - tránh bị Zalo chặn IP Mỹ
-        const proxyUrl = `https://nhanphuphuyen.edu.vn/zalo_proxy.php?user_id=${senderId}&token=${encodeURIComponent(token)}`;
+        const proxyUrl = `${process.env.ZALO_PROXY_URL || 'https://nhanphuphuyen.edu.vn/zalo_proxy.php'}?user_id=${senderId}`;
         const profileRes = await fetch(proxyUrl, { 
-          signal: AbortSignal.timeout(8000)
+          signal: AbortSignal.timeout(10000)
         });
         const profileData = await profileRes.json();
         
@@ -61,10 +58,10 @@ export async function POST(request: Request) {
           customerAvatar = profileData.data.avatar || '';
           console.log('Lấy Zalo profile thành công:', customerName);
         } else {
-          console.error('Lỗi lấy Zalo profile từ proxy:', profileData);
+          console.error('Lỗi lấy Zalo profile từ proxy:', JSON.stringify(profileData));
         }
-      } catch (e) {
-        console.error('Không thể lấy Zalo profile:', e);
+      } catch (e: any) {
+        console.error('Không thể lấy Zalo profile:', e.message);
       }
 
       // 1. Cập nhật hoặc Tạo mới luồng chat (Conversation)
