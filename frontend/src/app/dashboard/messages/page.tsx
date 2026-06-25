@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { chatApi, crmApi } from '@/lib/api';
 import { 
   MessageSquare, Send, Phone, User, Calendar, PlusCircle, 
-  Search, Filter, CheckCircle2, MoreVertical, Paperclip, Smile
+  Search, Filter, CheckCircle2, MoreVertical, Paperclip, Smile, Loader2
 } from 'lucide-react';
 import { collection, onSnapshot, query, where, orderBy, doc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -21,6 +21,7 @@ export default function MessagesPage() {
   const [activeTab, setActiveTab] = useState<'All' | 'Zalo' | 'Facebook'>('All');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [sending, setSending] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -86,12 +87,16 @@ export default function MessagesPage() {
     
     const text = messageText;
     setMessageText(''); // Optimistic clear
+    setSending(true);
 
     try {
       await chatApi.sendMessage(selectedConv.id, text, user.id, user.fullName, selectedConv.platform, customImageUrl);
     } catch (err) {
       console.error('Lỗi gửi tin nhắn', err);
       alert('Không thể gửi tin nhắn. Có thể App chưa được Zalo xét duyệt.');
+      setMessageText(text); // Phục hồi lại tin nhắn nếu lỗi
+    } finally {
+      setSending(false);
     }
   };
 
@@ -324,14 +329,14 @@ export default function MessagesPage() {
                 <input 
                   type="text" 
                   className="form-input" 
-                  style={{ flex: 1, borderRadius: 20, padding: '10px 16px', opacity: uploading ? 0.5 : 1 }}
-                  placeholder={uploading ? 'Đang gửi ảnh...' : `Nhập tin nhắn trả lời ${selectedConv.customerName}...`}
+                  style={{ flex: 1, borderRadius: 20, padding: '10px 16px', opacity: uploading || sending ? 0.5 : 1 }}
+                  placeholder={uploading ? 'Đang gửi ảnh...' : sending ? 'Đang gửi tin nhắn...' : `Nhập tin nhắn trả lời ${selectedConv.customerName}...`}
                   value={messageText}
                   onChange={e => setMessageText(e.target.value)}
-                  disabled={uploading}
+                  disabled={uploading || sending}
                 />
-                <button type="submit" className="btn btn-primary" style={{ width: 40, height: 40, padding: 0, borderRadius: 20, justifyContent: 'center' }} disabled={(!messageText.trim() && !uploading) || uploading}>
-                  <Send size={18} />
+                <button type="submit" className="btn btn-primary" style={{ width: 40, height: 40, padding: 0, borderRadius: 20, justifyContent: 'center', display: 'flex', alignItems: 'center' }} disabled={(!messageText.trim() && !uploading) || uploading || sending}>
+                  {uploading || sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
                 </button>
               </form>
             </div>

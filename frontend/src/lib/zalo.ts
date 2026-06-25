@@ -75,12 +75,11 @@ export async function getZaloToken(): Promise<string> {
 export async function getZaloProfile(userId: string) {
   try {
     const token = await getZaloToken();
-    const response = await fetch(`https://openapi.zalo.me/v2.0/oa/getprofile?data={"user_id":"${userId}"}`, {
-      method: 'GET',
-      headers: {
-        'access_token': token
-      }
-    });
+    
+    // Chuyển hướng sang Proxy Server Việt Nam (iNET) để qua mặt Zalo
+    const proxyUrl = `https://nhanphuphuyen.edu.vn/zalo_proxy.php?user_id=${userId}&token=${token}`;
+    
+    const response = await fetch(proxyUrl);
     const data = await response.json();
     if (data.error === 0) {
       return data.data; // { display_name, avatar, user_id, ... }
