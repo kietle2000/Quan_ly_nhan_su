@@ -41,16 +41,27 @@ export async function POST(request: Request) {
         }
       }
 
-      // Lấy Profile khách hàng từ Zalo nếu cần
+      // Lấy Profile khách hàng từ Zalo qua PHP Proxy Việt Nam (iNET)
       let customerName = 'Zalo User ' + senderId.substring(0, 5);
       let customerAvatar = '';
       
       try {
-        const { getZaloProfile } = await import('@/lib/zalo');
-        const profile = await getZaloProfile(senderId);
-        if (profile) {
-          customerName = profile.display_name || customerName;
-          customerAvatar = profile.avatar || '';
+        const { getZaloToken } = await import('@/lib/zalo');
+        const token = await getZaloToken();
+        
+        // Gọi thẳng PHP proxy trên máy chủ Việt Nam (iNET) - tránh bị Zalo chặn IP Mỹ
+        const proxyUrl = `https://nhanphuphuyen.edu.vn/zalo_proxy.php?user_id=${senderId}&token=${encodeURIComponent(token)}`;
+        const profileRes = await fetch(proxyUrl, { 
+          signal: AbortSignal.timeout(8000)
+        });
+        const profileData = await profileRes.json();
+        
+        if (profileData.error === 0 && profileData.data) {
+          customerName = profileData.data.display_name || customerName;
+          customerAvatar = profileData.data.avatar || '';
+          console.log('Lấy Zalo profile thành công:', customerName);
+        } else {
+          console.error('Lỗi lấy Zalo profile từ proxy:', profileData);
         }
       } catch (e) {
         console.error('Không thể lấy Zalo profile:', e);
