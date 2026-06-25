@@ -6,8 +6,9 @@ import {
   MessageSquare, Send, Phone, User, Calendar, PlusCircle, 
   Search, Filter, CheckCircle2, MoreVertical, Paperclip, Smile
 } from 'lucide-react';
-import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { collection, onSnapshot, query, where, orderBy, doc, updateDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '@/lib/firebase';
 
 export default function MessagesPage() {
   const { user } = useAuth();
@@ -18,8 +19,11 @@ export default function MessagesPage() {
   const [matchedLead, setMatchedLead] = useState<any | null>(null);
   const [loadingConv, setLoadingConv] = useState(true);
   const [activeTab, setActiveTab] = useState<'All' | 'Zalo' | 'Facebook'>('All');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [uploading, setUploading] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load conversations via onSnapshot to get realtime updates (when new messages arrive from Webhook)
   useEffect(() => {
@@ -76,20 +80,51 @@ export default function MessagesPage() {
     }, 100);
   };
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!messageText.trim() || !selectedConv || !user) return;
+  const handleSendMessage = async (e?: React.FormEvent, customImageUrl?: string) => {
+    if (e) e.preventDefault();
+    if ((!messageText.trim() && !customImageUrl) || !selectedConv || !user) return;
     
     const text = messageText;
     setMessageText(''); // Optimistic clear
 
     try {
-      await chatApi.sendMessage(selectedConv.id, text, user.id, user.fullName, selectedConv.platform);
+      await chatApi.sendMessage(selectedConv.id, text, user.id, user.fullName, selectedConv.platform, customImageUrl);
     } catch (err) {
       console.error('Lỗi gửi tin nhắn', err);
-      alert('Không thể gửi tin nhắn.');
+      alert('Không thể gửi tin nhắn. Có thể App chưa được Zalo xét duyệt.');
     }
   };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedConv) return;
+    
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      
+      const res = await fetch('https://api.imgbb.com/1/upload?key=2974df40bf5cfd3b04713859caad40fb', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      
+      if (data.success) {
+        await handleSendMessage(undefined, data.data.url);
+      } else {
+        throw new Error(data.error?.message || 'Lỗi ImgBB');
+      }
+    } catch (err) {
+      console.error('Upload lỗi', err);
+      alert('Không thể tải ảnh lên. Lỗi: ' + (err as Error).message);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const emojis = ['😀','😂','🥰','😎','😭','👍','❤️','🙏','🎉','🔥'];
 
   const handleCreateLead = async () => {
     if (!selectedConv) return;
@@ -274,19 +309,28 @@ export default function MessagesPage() {
             </div>
 
             {/* Input Area */}
-            <div style={{ padding: 16, borderTop: '1px solid var(--border)' }}>
+            <div style={{ padding: 16, borderTop: '1px solid var(--border)', position: 'relative' }}>
+              {showEmojiPicker && (
+                <div style={{ position: 'absolute', bottom: 70, left: 20, background: 'var(--bg-secondary)', padding: 10, borderRadius: 12, display: 'flex', gap: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                  {emojis.map(emoji => (
+                    <span key={emoji} style={{ cursor: 'pointer', fontSize: 20 }} onClick={() => { setMessageText(prev => prev + emoji); setShowEmojiPicker(false); }}>{emoji}</span>
+                  ))}
+                </div>
+              )}
               <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <Paperclip size={20} color="var(--text-muted)" style={{ cursor: 'pointer' }} />
-                <Smile size={20} color="var(--text-muted)" style={{ cursor: 'pointer' }} />
+                <input type="file" accept="image/*" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileUpload} />
+                <Paperclip size={20} color="var(--text-muted)" style={{ cursor: 'pointer' }} onClick={() => fileInputRef.current?.click()} />
+                <Smile size={20} color="var(--text-muted)" style={{ cursor: 'pointer' }} onClick={() => setShowEmojiPicker(!showEmojiPicker)} />
                 <input 
                   type="text" 
                   className="form-input" 
-                  style={{ flex: 1, borderRadius: 20, padding: '10px 16px' }}
-                  placeholder={`Nhập tin nhắn trả lời ${selectedConv.customerName}...`}
+                  style={{ flex: 1, borderRadius: 20, padding: '10px 16px', opacity: uploading ? 0.5 : 1 }}
+                  placeholder={uploading ? 'Đang gửi ảnh...' : `Nhập tin nhắn trả lời ${selectedConv.customerName}...`}
                   value={messageText}
                   onChange={e => setMessageText(e.target.value)}
+                  disabled={uploading}
                 />
-                <button type="submit" className="btn btn-primary" style={{ width: 40, height: 40, padding: 0, borderRadius: 20, justifyContent: 'center' }} disabled={!messageText.trim()}>
+                <button type="submit" className="btn btn-primary" style={{ width: 40, height: 40, padding: 0, borderRadius: 20, justifyContent: 'center' }} disabled={(!messageText.trim() && !uploading) || uploading}>
                   <Send size={18} />
                 </button>
               </form>

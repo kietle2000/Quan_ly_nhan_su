@@ -612,12 +612,12 @@ export const chatApi = {
     const snap = await getDocs(q);
     return toRes(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()));
   },
-  sendMessage: async (conversationId: string, messageText: string, senderId: string, senderName: string, platform?: string) => {
+  sendMessage: async (conversationId: string, messageText: string, senderId: string, senderName: string, platform?: string, imageUrl?: string) => {
     if (platform === 'Zalo') {
       const res = await fetch('/api/zalo/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ senderId: conversationId, text: messageText, userId: senderId, userName: senderName })
+        body: JSON.stringify({ senderId: conversationId, text: messageText, userId: senderId, userName: senderName, imageUrl: imageUrl })
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.message);
@@ -630,6 +630,7 @@ export const chatApi = {
       id: msgId,
       conversationId,
       text: messageText,
+      imageUrl: imageUrl || '',
       senderId,
       senderName,
       type: 'outbound',

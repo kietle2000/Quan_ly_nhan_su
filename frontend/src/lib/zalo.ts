@@ -86,9 +86,23 @@ export async function getZaloProfile(userId: string) {
       return data.data; // { display_name, avatar, user_id, ... }
     }
     console.error('Lỗi lấy profile Zalo:', data);
+    
+    // Log error to Firestore to debug
+    await setDoc(doc(db, 'debug_logs', `profile_${Date.now()}`), {
+      action: 'getZaloProfile',
+      userId: userId,
+      error: data,
+      createdAt: new Date().toISOString()
+    });
+
     return null;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Lỗi gọi Zalo API getProfile:', error);
+    await setDoc(doc(db, 'debug_logs', `profile_catch_${Date.now()}`), {
+      action: 'getZaloProfile',
+      error: error.message || 'Unknown',
+      createdAt: new Date().toISOString()
+    });
     return null;
   }
 }
@@ -96,9 +110,30 @@ export async function getZaloProfile(userId: string) {
 /**
  * Gửi tin nhắn text qua Zalo OA
  */
-export async function sendZaloMessage(userId: string, text: string) {
+export async function sendZaloMessage(userId: string, text: string, imageUrl?: string) {
   try {
     const token = await getZaloToken();
+    
+    let messageBody: any = { text: text };
+    
+    if (imageUrl) {
+      messageBody = {
+        text: text,
+        attachment: {
+          type: "template",
+          payload: {
+            template_type: "media",
+            elements: [
+              {
+                media_type: "image",
+                url: imageUrl
+              }
+            ]
+          }
+        }
+      };
+    }
+
     const response = await fetch('https://openapi.zalo.me/v3.0/oa/message/cs', {
       method: 'POST',
       headers: {
@@ -107,7 +142,7 @@ export async function sendZaloMessage(userId: string, text: string) {
       },
       body: JSON.stringify({
         recipient: { user_id: userId },
-        message: { text: text }
+        message: messageBody
       })
     });
     

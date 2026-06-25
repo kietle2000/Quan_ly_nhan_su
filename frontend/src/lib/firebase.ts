@@ -1,12 +1,13 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: "AIzaSyAHiL9n7wG7rSA9DIneQwCfh6lvXKjGofI",
   authDomain: "hrm-nhan-phu.firebaseapp.com",
   projectId: "hrm-nhan-phu",
-  storageBucket: "hrm-nhan-phu.firebasestorage.app",
+  storageBucket: "hrm-nhan-phu.appspot.com",
   messagingSenderId: "623974736852",
   appId: "1:623974736852:web:007f7f29b885ccd958ac41",
   measurementId: "G-5ZP5B4H3KK"
@@ -17,5 +18,6 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const storage = getStorage(app);
 
 export default app;

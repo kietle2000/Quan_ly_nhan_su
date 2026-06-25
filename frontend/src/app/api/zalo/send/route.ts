@@ -5,19 +5,20 @@ import { collection, addDoc, doc, setDoc } from 'firebase/firestore';
 
 export async function POST(request: Request) {
   try {
-    const { senderId, text, userId, userName } = await request.json();
+    const { senderId, text, userId, userName, imageUrl } = await request.json();
 
-    if (!senderId || !text) {
+    if (!senderId || (!text && !imageUrl)) {
       return NextResponse.json({ success: false, message: 'Thiếu thông tin người nhận hoặc nội dung' }, { status: 400 });
     }
 
     // 1. Gọi Zalo API để gửi tin nhắn
-    await sendZaloMessage(senderId, text);
+    await sendZaloMessage(senderId, text || '', imageUrl);
 
     // 2. Lưu vào CSDL
     await addDoc(collection(db, 'messages'), {
       conversationId: senderId,
-      text: text,
+      text: text || '',
+      imageUrl: imageUrl || '',
       senderId: userId || 'admin',
       senderName: userName || 'Quản trị viên',
       type: 'outbound',
