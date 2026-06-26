@@ -67,6 +67,27 @@ export default function CrmPage() {
   const [actContent, setActContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [loadingLeadId, setLoadingLeadId] = useState<string | null>(null);
+  
+  const [assigningAI, setAssigningAI] = useState(false);
+
+  const handleAssignToAI = async () => {
+    if (!selectedLead) return;
+    setAssigningAI(true);
+    try {
+      const res = await fetch('/api/ai/proactive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead: selectedLead })
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      alert('AI đã phân tích hồ sơ và tiến hành tiếp cận khách hàng:\n\n' + data.message);
+      viewLead(selectedLead.id); // Reload lead để thấy nhật ký
+    } catch (err: any) {
+      alert('Lỗi giao AI: ' + err.message);
+    }
+    setAssigningAI(false);
+  };
 
   // Status Change Modals
   const [showSignedModal, setShowSignedModal] = useState<any>(null);
@@ -548,6 +569,16 @@ export default function CrmPage() {
                   }}>
                     {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                   </select>
+
+                  <button 
+                    className="btn" 
+                    style={{ background: 'var(--accent-purple)', color: 'white', border: 'none', padding: '0 12px' }} 
+                    onClick={handleAssignToAI} 
+                    disabled={assigningAI}
+                    title="Giao cho AI tự động nhắn tin và lên lịch hẹn"
+                  >
+                    {assigningAI ? <span className="spinner" style={{ width: 16, height: 16 }} /> : '🤖 Giao cho AI'}
+                  </button>
 
                   {user?.role === 'Admin' && (
                     <button className="btn" style={{ background: 'var(--accent-red)', color: 'white', border: 'none', padding: '0 12px' }} onClick={() => handleDeleteLead(selectedLead.id)}>

@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { knowledgeApi } from '@/lib/api';
-import { BookOpen, Search, FileText, Download, Video, Folder, Plus, Trash2, X } from 'lucide-react';
+import { BookOpen, Search, FileText, Download, Video, Folder, Plus, Trash2, X, Bot, Database } from 'lucide-react';
 
 const CATEGORIES = [
   { id: 'sales', name: 'Kịch bản Sales & Tư vấn', icon: FileText },
@@ -33,6 +33,29 @@ export default function KnowledgeBasePage() {
   const [form, setForm] = useState({ title: '', categoryId: 'sales', file: null as File | null });
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+
+  const [aiText, setAiText] = useState('');
+  const [aiPrompt, setAiPrompt] = useState('Bạn là trợ lý AI thông minh của trung tâm Nhân Phú. Hãy dựa vào tài liệu được cung cấp để trả lời khách hàng ngắn gọn, thân thiện và chính xác.');
+  const [training, setTraining] = useState(false);
+
+  const handleTrainAI = async () => {
+    if (!aiText.trim()) return alert('Vui lòng nhập nội dung kiến thức');
+    setTraining(true);
+    try {
+      const res = await fetch('/api/knowledge/train', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: aiText, prompt: aiPrompt })
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Lỗi server');
+      alert(`Đã nạp thành công! Đã tạo ${data.chunks} vector lưu vào Pinecone.`);
+      setAiText('');
+    } catch (err: any) {
+      alert('Lỗi huấn luyện: ' + err.message);
+    }
+    setTraining(false);
+  };
 
   const fetchDocs = async () => {
     setLoading(true);
@@ -172,12 +195,69 @@ export default function KnowledgeBasePage() {
                 </button>
               );
             })}
+
+            <div style={{ height: 1, background: 'var(--border)', margin: '8px 0' }} />
+            
+            {isAdmin && (
+              <button 
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderRadius: 8, background: activeCategory === 'ai-config' ? 'rgba(168, 85, 247, 0.1)' : 'transparent', color: activeCategory === 'ai-config' ? 'var(--accent-purple)' : 'var(--text-primary)', border: activeCategory === 'ai-config' ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid transparent', cursor: 'pointer', fontWeight: activeCategory === 'ai-config' ? 700 : 500, transition: 'all 0.2s' }}
+                onClick={() => setActiveCategory('ai-config')}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Bot size={18} />
+                  <span>Trợ lý AI Đa kênh</span>
+                </div>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent-purple)' }} />
+              </button>
+            )}
           </div>
         </div>
 
         {/* Content Area */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {loading ? (
+          {activeCategory === 'ai-config' ? (
+            <div className="glass-card animate-fadeInUp" style={{ padding: 32 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+                <div style={{ background: 'var(--accent-purple)', padding: 10, borderRadius: 12, color: 'white' }}><Database size={24} /></div>
+                <div>
+                  <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0, color: 'var(--accent-purple)' }}>Nạp kiến thức cho Trợ lý AI (RAG)</h2>
+                  <p style={{ fontSize: 14, color: 'var(--text-secondary)', margin: '4px 0 0' }}>AI sẽ tự động học các nội dung bạn nhập ở đây để trả lời khách hàng trên Zalo/Facebook</p>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 20 }}>
+                <label className="form-label" style={{ fontWeight: 700, color: 'var(--text-primary)' }}>1. Hướng dẫn tính cách (System Prompt)</label>
+                <textarea 
+                  className="form-input" 
+                  rows={3} 
+                  value={aiPrompt}
+                  onChange={e => setAiPrompt(e.target.value)}
+                  placeholder="Ví dụ: Bạn là trợ lý nhiệt tình..."
+                />
+              </div>
+
+              <div style={{ marginBottom: 24 }}>
+                <label className="form-label" style={{ fontWeight: 700, color: 'var(--text-primary)' }}>2. Nội dung kiến thức (Text Data)</label>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Copy/Paste các thông tin về khóa học, học phí, lịch học, chính sách trung tâm vào đây.</p>
+                <textarea 
+                  className="form-input" 
+                  rows={10} 
+                  value={aiText}
+                  onChange={e => setAiText(e.target.value)}
+                  placeholder="Trung tâm Nhân Phú hiện có 3 cơ sở. Khóa học Ielts có giá 5.000.000đ/tháng..."
+                />
+              </div>
+
+              <button 
+                className="btn" 
+                style={{ background: 'var(--accent-purple)', color: '#fff', width: '100%', padding: 14, fontSize: 16, fontWeight: 700 }}
+                onClick={handleTrainAI}
+                disabled={training}
+              >
+                {training ? <span className="spinner" style={{ width: 20, height: 20 }} /> : 'Nhúng Vector & Bắt đầu Huấn luyện'}
+              </button>
+            </div>
+          ) : loading ? (
              <div style={{ padding: 60, textAlign: 'center' }}>
                <span className="spinner" style={{ width: 32, height: 32, borderWidth: 3, display: 'inline-block' }} />
                <p style={{ marginTop: 12, color: 'var(--text-secondary)' }}>Đang tải tài liệu...</p>

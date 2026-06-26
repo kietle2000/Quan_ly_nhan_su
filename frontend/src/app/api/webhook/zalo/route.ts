@@ -95,7 +95,102 @@ export async function POST(request: Request) {
         createdAt: new Date(parseInt(timestamp)).toISOString()
       });
       
-      console.log(`Đã lưu tin nhắn Zalo (${eventName}) thành công!`);
+      // 3. Kiểm tra xem Bot có đang bật cho cuộc trò chuyện này không (Handoff logic)
+      // Nếu không có field botEnabled thì mặc định là bật
+      let botEnabled = true;
+      try {
+        const { getDoc } = await import('firebase/firestore');
+        const convSnap = await getDoc(convRef);
+        if (convSnap.exists() && convSnap.data().botEnabled === false) {
+          botEnabled = false;
+        }
+      } catch (e) {}
+
+      // 4. AI Tự động trả lời (nếu là tin nhắn văn bản và Bot đang bật)
+      if (eventName === 'user_send_text' && messageText && botEnabled) {
+        try {
+          const { aiAgent } = await import('@/lib/aiAgent');
+          // Lấy AI Prompt từ cấu hình hệ thống
+          const defaultPrompt = 'Bạn là trợ lý AI thông minh của trung tâm Nhân Phú. Hãy dựa vào tài liệu được cung cấp để trả lời khách hàng ngắn gọn, thân thiện và chính xác.';
+          
+          console.log('Đang nhờ AI sinh câu trả lời...');
+          const aiResponseObj = await aiAgent.generateResponse(messageText, defaultPrompt, senderId);
+          
+          // Xử lý Function Call
+          let aiText = '';
+          if (typeof aiResponseObj === 'string') {
+            // Trường hợp lỗi hoặc fallback
+            aiText = aiResponseObj;
+          } else {
+            aiText = aiResponseObj.text;
+            
+            if (aiResponseObj.type === 'function_call') {
+              if (aiResponseObj.function === 'bookAppointment') {
+                const { customerName, appointmentTime, note } = aiResponseObj.args as any;
+                // Lưu lịch hẹn vào DB
+                await addDoc(collection(db, 'appointments'), {
+                  customerId: senderId,
+                  customerName: customerName || customerName,
+                  time: appointmentTime,
+                  note: note || '',
+                  status: 'pending',
+                  source: 'zalo_ai',
+                  createdAt: new Date().toISOString()
+                });
+                console.log(`[AI Function] Đã lưu lịch hẹn cho ${customerName} vào lúc ${appointmentTime}`);
+              }
+              else if (aiResponseObj.function === 'handoffToHuman') {
+                // Tắt Bot cho cuộc trò chuyện này
+                await setDoc(convRef, {
+                  botEnabled: false,
+                  requiresAttention: true // Đánh dấu cần nhân viên chú ý
+                }, { merge: true });
+                console.log(`[AI Function] Đã tắt Bot và chuyển giao cho Người thật (Sender: ${senderId})`);
+              }
+            }
+          }
+
+          // Lưu tin nhắn của AI vào CSDL TRƯỚC khi gửi Zalo để đảm bảo luôn hiện trên UI
+          await addDoc(collection(db, 'messages'), {
+            conversationId: senderId,
+            text: aiText,
+            imageUrl: '',
+            senderId: 'ai-agent',
+            senderName: 'Trợ lý AI Nhân Phú',
+            type: 'outbound',
+            createdAt: new Date().toISOString()
+          });
+
+          // Cập nhật lastMessage
+          await setDoc(convRef, {
+            lastMessage: aiText,
+            lastMessageTime: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+
+          // Gửi tin nhắn qua Zalo
+          try {
+            const { sendZaloMessage } = await import('@/lib/zalo');
+            await sendZaloMessage(senderId, aiText);
+            console.log(`Đã tự động phản hồi bằng AI tới ${customerName}`);
+          } catch (zaloErr: any) {
+            console.error('Lỗi gửi Zalo (nhưng đã lưu UI):', zaloErr.message);
+          }
+        } catch (aiError: any) {
+          console.error('Lỗi khi AI trả lời:', aiError.message);
+          
+          // Ghi lỗi thẳng lên UI để dễ debug
+          await addDoc(collection(db, 'messages'), {
+            conversationId: senderId,
+            text: `[Hệ thống báo lỗi AI]: ${aiError.message}. Vui lòng kiểm tra lại Vercel / API Keys.`,
+            imageUrl: '',
+            senderId: 'ai-agent',
+            senderName: 'Trợ lý AI (Lỗi)',
+            type: 'outbound',
+            createdAt: new Date().toISOString()
+          });
+        }
+      }
     }
 
     // Luôn trả về 200 OK để Zalo biết server mình vẫn sống

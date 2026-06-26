@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { chatApi, crmApi } from '@/lib/api';
 import { 
   MessageSquare, Send, Phone, User, Calendar, PlusCircle, 
-  Search, Filter, CheckCircle2, MoreVertical, Paperclip, Smile, Loader2
+  Search, Filter, CheckCircle2, MoreVertical, Paperclip, Smile, Loader2, Bot
 } from 'lucide-react';
 import { collection, onSnapshot, query, where, orderBy, doc, updateDoc, deleteDoc, getDocs } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -172,6 +172,20 @@ export default function MessagesPage() {
     }
   };
 
+  const toggleAI = async () => {
+    if (!selectedConv) return;
+    try {
+      const convRef = doc(db, 'conversations', selectedConv.id);
+      const isBotEnabled = selectedConv.botEnabled !== false;
+      await updateDoc(convRef, {
+        botEnabled: !isBotEnabled,
+        requiresAttention: false // Xóa cờ cần chú ý nếu đang bật lại bot
+      });
+    } catch (err) {
+      alert('Lỗi khi bật/tắt AI');
+    }
+  };
+
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 80px)', gap: 16 }}>
       
@@ -308,9 +322,21 @@ export default function MessagesPage() {
                   </div>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 12, color: 'var(--text-muted)' }}>
-                <Filter size={18} cursor="pointer" />
-                <MoreVertical size={18} cursor="pointer" />
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <button 
+                  className="btn btn-sm"
+                  onClick={toggleAI}
+                  style={{ 
+                    background: selectedConv.botEnabled !== false ? 'rgba(147, 51, 234, 0.1)' : 'var(--bg-hover)', 
+                    color: selectedConv.botEnabled !== false ? 'var(--accent-purple)' : 'var(--text-muted)',
+                    border: `1px solid ${selectedConv.botEnabled !== false ? 'var(--accent-purple)' : 'var(--border)'}`,
+                    borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 600, display: 'flex', gap: 6
+                  }}
+                  title="Khi bật, AI sẽ tự động trả lời tin nhắn của khách hàng dựa trên tài liệu"
+                >
+                  <Bot size={14} /> {selectedConv.botEnabled !== false ? 'AI Đang Bật' : 'AI Đang Tắt'}
+                </button>
+                <MoreVertical size={18} cursor="pointer" color="var(--text-muted)" />
               </div>
             </div>
 
