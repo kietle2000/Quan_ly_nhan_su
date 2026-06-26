@@ -58,24 +58,47 @@ export default function WorkPlanPage() {
   const fetchPlan = async () => {
     setLoading(true); setPlan(null); setAllPlans([]);
     try {
+      const [plansRes, leadsRes] = await Promise.all([
+        isManagerOrAdmin ? workPlanApi.getPlans() : workPlanApi.getMyPlan(undefined, undefined, user?.id),
+        crmApi.getLeads()
+      ]);
+      const allLeads = leadsRes.data || [];
+      
+      const getMetrics = (empId: string) => {
+        let actualNew = 0, actualContacted = 0, actualConsulting = 0, actualMeeting = 0, actualSigned = 0;
+        const isInWeek = (dateStr: string) => {
+          if (!dateStr) return false;
+          const d = new Date(dateStr);
+          if (isNaN(d.getTime())) return false;
+          return getISOWeek(d) === week && getYear(d) === year;
+        };
+        allLeads.forEach((l: any) => {
+          if (l.ownerId !== empId) return;
+          if (isInWeek(l.createdAt)) actualNew++;
+          if (isInWeek(l.contactedAt)) actualContacted++;
+          if (isInWeek(l.consultingAt)) actualConsulting++;
+          if (isInWeek(l.meetingAt)) actualMeeting++;
+          if (isInWeek(l.signedAt)) actualSigned++;
+        });
+        return { actualNew, actualContacted, actualConsulting, actualMeeting, actualSigned };
+      };
+
+      let filteredPlans = (plansRes.data || []).filter((x: any) => x.weekNumber === week && x.year === year);
+      filteredPlans = filteredPlans.map((p: any) => ({ ...p, ...getMetrics(p.employeeId) }));
+
       let p: any = null;
       if (isManagerOrAdmin) {
-        const res = await workPlanApi.getPlans(week, year);
-        setAllPlans(res.data);
+        setAllPlans(filteredPlans);
         if (selectedEmployeeId) {
-          p = res.data.find((x: any) => x.employeeId === selectedEmployeeId);
-          if (!p) p = { weekNumber: week, year, employeeId: selectedEmployeeId, weekTarget: '', notes: '', items: [] };
+          p = filteredPlans.find((x: any) => x.employeeId === selectedEmployeeId);
+          if (!p) p = { weekNumber: week, year, employeeId: selectedEmployeeId, weekTarget: '', notes: '', items: [], ...getMetrics(selectedEmployeeId) };
         }
       } else {
-        const res = await workPlanApi.getMyPlan(week, year);
-        if (res.data) p = res.data;
-        else p = { weekNumber: week, year, employeeId: user?.id || '', weekTarget: '', notes: '', items: [] };
+        p = filteredPlans.length > 0 ? filteredPlans[0] : { weekNumber: week, year, employeeId: user?.id || '', weekTarget: '', notes: '', items: [], ...getMetrics(user?.id || '') };
       }
 
-      if (p) {
-        setPlan(p);
-      }
-    } catch {}
+      if (p) setPlan(p);
+    } catch (e) { console.error('Lỗi lấy dữ liệu KPI:', e); }
     setLoading(false);
   };
 

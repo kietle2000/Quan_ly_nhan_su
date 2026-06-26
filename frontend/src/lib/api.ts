@@ -176,7 +176,23 @@ export const crmApi = {
     return toRes({ success: true });
   },
   addActivity: async (leadId: string, data: any) => {
-    // Normally activities are stored in a subcollection or array. For now stub.
+    const d = await getDoc(doc(db, 'leads', leadId));
+    if (d.exists()) {
+      const lead = d.data();
+      const logs = lead.activityLogs || [];
+      
+      logs.push({
+        id: uuidv4(),
+        content: data.content,
+        timestamp: new Date().toISOString(),
+        employeeName: data.employeeName || 'Nhân viên'
+      });
+      
+      // Sắp xếp lại log mới nhất lên đầu (hoặc tuỳ UI)
+      logs.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      
+      await updateDoc(doc(db, 'leads', leadId), { activityLogs: logs });
+    }
     return toRes({ success: true });
   },
   importLeads: async (data: { leads: any[], employeeIds: string[] }) => {

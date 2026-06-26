@@ -66,6 +66,7 @@ export default function CrmPage() {
   const [selectedLead, setSelectedLead] = useState<any>(null);
   const [actContent, setActContent] = useState('');
   const [saving, setSaving] = useState(false);
+  const [isEditingLead, setIsEditingLead] = useState(false);
   const [loadingLeadId, setLoadingLeadId] = useState<string | null>(null);
   
   const [assigningAI, setAssigningAI] = useState(false);
@@ -106,7 +107,8 @@ export default function CrmPage() {
     if (!user) return;
     setLoading(true);
     try {
-      const ownerId = (user.role === 'Employee' || user.role === 'Instructor') ? user.id : (filterOwnerId || undefined);
+      // Cho nhân viên được quyền xem tất cả giống Admin (theo yêu cầu)
+      const ownerId = filterOwnerId || undefined;
       const res = await crmApi.getLeads({ ownerId });
       setLeads(res.data);
     } catch {}
@@ -151,7 +153,11 @@ export default function CrmPage() {
 
       // 2. Nếu có nhập nội dung nhật ký, gửi tạo hoạt động mới
       if (actContent.trim()) {
-        await crmApi.addActivity(selectedLead.id, { content: actContent.trim(), nextFollowUpDate: null });
+        await crmApi.addActivity(selectedLead.id, { 
+          content: actContent.trim(), 
+          nextFollowUpDate: null,
+          employeeName: user?.fullName || 'Hệ thống'
+        });
         setActContent('');
       }
 
@@ -207,38 +213,29 @@ export default function CrmPage() {
       const wb = XLSX.read(bstr, { type: 'binary' });
       const wsname = wb.SheetNames[0];
       const ws = wb.Sheets[wsname];
-      const data: any[] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      const data: any[] = XLSX.utils.sheet_to_json(ws);
       
       const parsedLeads = [];
-      for (let i = 1; i < data.length; i++) {
+      for (let i = 0; i < data.length; i++) {
         const row = data[i];
-        if (!row || row.length < 2) continue; 
+        if (!row) continue;
         
-        const name = row[1] || '';
-        const truong = row[2] || '';
-        const lop = row[3] || '';
-        const phone = row[4] ? String(row[4]).trim() : '';
-        const nguyenVong = row[5] || '';
+        const name = String(row['Họ và tên'] || row['Tên khách hàng'] || row['Họ tên'] || row['Name'] || '').trim();
+        const phone = String(row['SĐT'] || row['Số điện thoại'] || row['Phone'] || '').trim();
         
-        if (!name && !phone) continue;
-
-        const nameClean = String(name).trim().toLowerCase();
-        const phoneClean = String(phone).trim().toLowerCase();
-        if (
-          nameClean === 'họ và tên' || 
-          nameClean === 'họ tên' || 
-          phoneClean === 'sđt' || 
-          phoneClean === 'số điện thoại' || 
-          phoneClean === 'sdt'
-        ) {
-          continue;
-        }
+        const truong = String(row['Trường'] || row['School'] || '').trim();
+        const lop = String(row['Lớp'] || row['Class'] || '').trim();
+        const nguyenVong = String(row['Nguyện vọng'] || '').trim();
+        const ghiChu = String(row['Ghi chú'] || '').trim();
+        
+        // Bắt buộc thông tin khách hàng phải có cả tên và SĐT
+        if (!name || !phone) continue;
 
         parsedLeads.push({
           name: name,
           phone: phone,
           source: 'Import Excel',
-          notes: `Trường: ${truong} | Lớp: ${lop} | Nguyện vọng: ${nguyenVong}`
+          notes: ghiChu || `Trường: ${truong} | Lớp: ${lop} | Nguyện vọng: ${nguyenVong}`
         });
       }
       setImportData(parsedLeads);
@@ -297,29 +294,25 @@ export default function CrmPage() {
           <p className="page-subtitle">Theo dõi hành trình tư vấn du học</p>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          {user?.role !== 'Employee' && (
-            <select 
-              className="form-input" 
-              value={filterOwnerId} 
-              onChange={e => setFilterOwnerId(e.target.value)}
-              style={{ width: 160, padding: '8px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)' }}
-            >
-              <option value="">Tất cả nhân viên</option>
-              {employees.filter(e => e.role !== 'Admin').map(emp => (
-                <option key={emp.id} value={emp.id}>{emp.fullName}</option>
-              ))}
-            </select>
-          )}
+          <select 
+            className="form-input" 
+            value={filterOwnerId} 
+            onChange={e => setFilterOwnerId(e.target.value)}
+            style={{ width: 160, padding: '8px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)' }}
+          >
+            <option value="">Tất cả nhân viên</option>
+            {employees.filter(e => e.role !== 'Admin').map(emp => (
+              <option key={emp.id} value={emp.id}>{emp.fullName}</option>
+            ))}
+          </select>
 
           <button className="btn" style={{ background: '#3b82f6', color: 'white', border: 'none' }} onClick={exportToExcel}>
             <Download size={16} /> Xuất Excel
           </button>
 
-          {user?.role !== 'Employee' && (
-            <button className="btn" style={{ background: '#10b981', color: 'white', border: 'none' }} onClick={() => setShowImport(true)}>
-              <FileSpreadsheet size={16} /> Nhập từ Excel
-            </button>
-          )}
+          <button className="btn" style={{ background: '#10b981', color: 'white', border: 'none' }} onClick={() => setShowImport(true)}>
+            <FileSpreadsheet size={16} /> Nhập từ Excel
+          </button>
           <button className="btn btn-primary" onClick={() => { setForm({ ...form, ownerId: user?.id || '' }); setShowAdd(true); }}><Plus size={16} /> Thêm khách hàng</button>
 
           {user?.role === 'Admin' && (
@@ -445,7 +438,7 @@ export default function CrmPage() {
                   <Upload size={32} color="var(--text-muted)" style={{ marginBottom: 8 }} />
                   <span style={{ fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center', padding: '0 16px' }}>
                     Kéo thả hoặc click để chọn file .xlsx<br/>
-                    <small>(Cấu trúc cột: STT, Họ và tên, Trường, Lớp, SĐT, Nguyện vọng)</small>
+                    <small>(Hệ thống tự nhận diện cột thông minh. Cột bắt buộc phải có: "Tên khách hàng" hoặc "Họ và tên", và "Số điện thoại")</small>
                   </span>
                   <input type="file" accept=".xlsx, .xls" style={{ display: 'none' }} onChange={handleFileUpload} />
                 </label>
@@ -518,18 +511,25 @@ export default function CrmPage() {
 
       {/* Lead Detail Modal */}
       {selectedLead && (
-        <div className="modal-overlay" onClick={() => setSelectedLead(null)}>
+        <div className="modal-overlay" onClick={() => { setSelectedLead(null); setIsEditingLead(false); }}>
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 700, padding: 0, display: 'flex', flexDirection: 'column', maxHeight: '90vh' }}>
             <div style={{ padding: '24px 24px 16px', borderBottom: '1px solid var(--border)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-                <div>
-                  <h2 style={{ fontSize: 20, fontWeight: 700, margin: '0 0 8px' }}>{selectedLead.name}</h2>
-                  <div style={{ display: 'flex', gap: 12, color: 'var(--text-secondary)', fontSize: 13 }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Phone size={14} /> {selectedLead.phone}</span>
-                    {selectedLead.facebookUrl && <a href={selectedLead.facebookUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: 6 }}><Globe size={14} /> Facebook</a>}
-                    <span style={{ background: 'var(--bg-hover)', padding: '2px 8px', borderRadius: 4 }}>Nguồn: {selectedLead.source || 'Tự nhiên'}</span>
+                {isEditingLead ? (
+                  <div style={{ marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <input type="text" className="form-input" style={{ fontSize: 18, fontWeight: 700 }} value={selectedLead.name} onChange={e => setSelectedLead({...selectedLead, name: e.target.value})} placeholder="Họ và tên" />
+                    <input type="text" className="form-input" style={{ fontSize: 13 }} value={selectedLead.phone} onChange={e => setSelectedLead({...selectedLead, phone: e.target.value})} placeholder="Số điện thoại" />
                   </div>
-                </div>
+                ) : (
+                  <div>
+                    <h2 style={{ fontSize: 20, fontWeight: 700, margin: '0 0 8px' }}>{selectedLead.name}</h2>
+                    <div style={{ display: 'flex', gap: 12, color: 'var(--text-secondary)', fontSize: 13 }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Phone size={14} /> {selectedLead.phone}</span>
+                      {selectedLead.facebookUrl && <a href={selectedLead.facebookUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: 6 }}><Globe size={14} /> Facebook</a>}
+                      <span style={{ background: 'var(--bg-hover)', padding: '2px 8px', borderRadius: 4 }}>Nguồn: {selectedLead.source || 'Tự nhiên'}</span>
+                    </div>
+                  </div>
+                )}
                 <div style={{ display: 'flex', gap: 8 }}>
                   <select className="form-input" style={{ width: 140, fontWeight: 600, color: `var(--accent-${selectedLead.status === 'Signed' ? 'green' : selectedLead.status === 'Lost' ? 'red' : 'blue'})` }} value={selectedLead.status} onChange={e => {
                     const newStatus = e.target.value;
@@ -570,25 +570,34 @@ export default function CrmPage() {
                     {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                   </select>
 
-                  <button 
-                    className="btn" 
-                    style={{ background: 'var(--accent-purple)', color: 'white', border: 'none', padding: '0 12px' }} 
-                    onClick={handleAssignToAI} 
-                    disabled={assigningAI}
-                    title="Giao cho AI tự động nhắn tin và lên lịch hẹn"
-                  >
-                    {assigningAI ? <span className="spinner" style={{ width: 16, height: 16 }} /> : '🤖 Giao cho AI'}
-                  </button>
-
-                  {user?.role === 'Admin' && (
-                    <button className="btn" style={{ background: 'var(--accent-red)', color: 'white', border: 'none', padding: '0 12px' }} onClick={() => handleDeleteLead(selectedLead.id)}>
-                      Xóa
+                  {isEditingLead ? (
+                    <button className="btn btn-primary" style={{ padding: '0 12px' }} disabled={saving} onClick={async () => {
+                      setSaving(true);
+                      try {
+                        await crmApi.updateLead(selectedLead.id, selectedLead);
+                        setIsEditingLead(false);
+                        fetchLeads();
+                      } catch (e) { alert('Lỗi lưu'); }
+                      setSaving(false);
+                    }}>
+                      {saving ? 'Đang lưu...' : 'Lưu'}
                     </button>
+                  ) : (
+                    <button className="btn btn-secondary" style={{ padding: '0 12px' }} onClick={() => setIsEditingLead(true)}>Sửa</button>
                   )}
+                  
+                  <button className="btn" style={{ background: 'var(--accent-red)', color: 'white', border: 'none', padding: '0 12px' }} onClick={() => handleDeleteLead(selectedLead.id)}>
+                    Xóa
+                  </button>
                 </div>
               </div>
               
-              {selectedLead.notes && (
+              {isEditingLead ? (
+                <div style={{ marginTop: 16, marginBottom: 16, padding: '0 24px' }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, marginBottom: 4, display: 'block' }}>Ghi chú:</label>
+                  <textarea className="form-input" style={{ width: '100%', fontSize: 13 }} rows={3} value={selectedLead.notes || ''} onChange={e => setSelectedLead({...selectedLead, notes: e.target.value})} />
+                </div>
+              ) : selectedLead.notes && (
                 <div style={{ marginTop: 16, marginBottom: 16, padding: 12, background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: 8, fontSize: 13, color: 'var(--text-primary)' }}>
                   <strong>Ghi chú (Từ Excel):</strong> {selectedLead.notes}
                 </div>
