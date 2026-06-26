@@ -218,6 +218,7 @@ export default function CrmPage() {
       let headerRowIndex = -1;
       let nameColIndex = -1;
       let phoneColIndex = -1;
+      let notesColIndex = -1;
 
       // Tìm dòng header (quét 20 dòng đầu)
       for (let i = 0; i < Math.min(data.length, 20); i++) {
@@ -228,18 +229,26 @@ export default function CrmPage() {
         let tempPhoneIdx = -1;
 
         for (let j = 0; j < row.length; j++) {
-          const cellStr = String(row[j] || '').toLowerCase().trim();
+          const rawStr = String(row[j] || '').trim();
+          // Chuyển về chữ thường, xóa khoảng trắng thừa, và bỏ dấu tiếng Việt để so sánh chính xác tuyệt đối
+          const asciiStr = rawStr.toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd')
+            .replace(/\s+/g, ' ');
           
-          if (/^(họ tên|họ và tên|tên|tên khách hàng|name|khách hàng)$/.test(cellStr)) {
+          if (/^(ho ten|ho va ten|ten|ten khach hang|name|khach hang)$/.test(asciiStr) || asciiStr.includes('ten khach') || asciiStr.includes('ho ten')) {
             tempNameIdx = j;
-          } else if (tempNameIdx === -1 && (cellStr.includes('tên') || cellStr.includes('name'))) {
+          } else if (tempNameIdx === -1 && (asciiStr.includes('ten') || asciiStr.includes('name'))) {
             tempNameIdx = j;
           }
 
-          if (/^(sđt|sdt|số điện thoại|điện thoại|phone|đt)$/.test(cellStr)) {
+          if (/^(sdt|so dien thoai|dien thoai|phone|dt)$/.test(asciiStr) || asciiStr.includes('sdt') || asciiStr.includes('dien thoai')) {
             tempPhoneIdx = j;
-          } else if (tempPhoneIdx === -1 && (cellStr.includes('sđt') || cellStr.includes('sdt') || cellStr.includes('điện thoại') || cellStr.includes('phone'))) {
+          } else if (tempPhoneIdx === -1 && asciiStr.includes('phone')) {
             tempPhoneIdx = j;
+          }
+
+          if (/^(ghi chu|notes|note|ghi chú)$/.test(asciiStr) || asciiStr.includes('ghi chu')) {
+            notesColIndex = j;
           }
         }
 
@@ -267,21 +276,16 @@ export default function CrmPage() {
         
         if (!name || phone.length < 8) continue;
 
-        let notesArr = [];
-        for (let j = 0; j < row.length; j++) {
-          if (j !== nameColIndex && j !== phoneColIndex && row[j]) {
-            const headerName = String(data[headerRowIndex][j] || `Cột ${j+1}`).trim();
-            if (headerName) {
-              notesArr.push(`${headerName}: ${row[j]}`);
-            }
-          }
+        let notes = '';
+        if (notesColIndex !== -1 && row[notesColIndex]) {
+          notes = String(row[notesColIndex]).trim();
         }
 
         parsedLeads.push({
           name: name,
           phone: phone,
           source: 'Import Excel',
-          notes: notesArr.join(' | ')
+          notes: notes
         });
       }
       
@@ -369,11 +373,9 @@ export default function CrmPage() {
           </button>
           <button className="btn btn-primary" onClick={() => { setForm({ ...form, ownerId: user?.id || '' }); setShowAdd(true); }}><Plus size={16} /> Thêm khách hàng</button>
 
-          {user?.role === 'Admin' && (
-            <button className="btn" style={{ background: 'var(--accent-red)', color: 'white', border: 'none', marginLeft: 8 }} onClick={handleDeleteAll}>
-              Xóa tất cả
-            </button>
-          )}
+          <button className="btn" style={{ background: 'var(--accent-red)', color: 'white', border: 'none', marginLeft: 8 }} onClick={handleDeleteAll}>
+            Xóa tất cả
+          </button>
         </div>
       </div>
 
