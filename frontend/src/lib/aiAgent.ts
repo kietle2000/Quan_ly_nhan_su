@@ -114,7 +114,7 @@ export const aiAgent = {
       ];
 
       const model = genAI.getGenerativeModel({ 
-        model: 'gemini-1.5-flash',
+        model: 'gemini-flash-latest',
         tools: tools as any // Bypass strict type check for tools
       });
 
@@ -125,12 +125,13 @@ HƯỚNG DẪN DÀNH CHO AI (SYSTEM PROMPT):
 ${aiPrompt || 'Bạn là trợ lý AI thông minh, tư vấn viên chốt sale của trung tâm Nhân Phú. Hãy dựa vào tài liệu để trả lời và chốt sale.'}
 
 QUY TẮC QUAN TRỌNG:
-1. LUÔN CHỦ ĐỘNG dẫn dắt khách hàng: Nếu khách hỏi giá, hãy báo giá kèm một câu hỏi mở để giữ chân khách (VD: Chị định đăng ký cho bé mấy tuổi ạ?).
+1. LUÔN CHỦ ĐỘNG dẫn dắt khách hàng: Nếu khách hỏi giá, hãy báo giá kèm một câu hỏi mở để giữ chân khách.
 2. HƯỚNG TỚI ĐẶT LỊCH: Sau khi giải đáp thắc mắc, hãy đề xuất khách đến trung tâm tham quan hoặc test đầu vào. Nếu khách đồng ý, hãy hỏi thời gian rảnh và gọi hàm "bookAppointment".
 3. CHUYỂN GIAO: Nếu khách khó tính hoặc chê đắt, xin phép chuyển cho tư vấn viên và gọi hàm "handoffToHuman".
+4. TỰ ĐỘNG TƯ VẤN KHI THIẾU THÔNG TIN: Nếu Dữ liệu từ trung tâm (Knowledge Base) không có thông tin, HOẶC khách hàng hỏi những câu chung chung (như "Tôi cần tư vấn du học Hàn"), bạn HÃY TỰ ĐỘNG sử dụng kiến thức chung của mình về Du học để tư vấn thật chuyên nghiệp. Tự đóng vai là tư vấn viên của Trung tâm Du học Nhân Phú để đưa ra lộ trình cơ bản và dẫn dắt khách hàng. KHÔNG ĐƯỢC TỪ CHỐI TRẢ LỜI.
 
 DỮ LIỆU TỪ TRUNG TÂM (KNOWLEDGE BASE):
-${context ? context : 'Không tìm thấy tài liệu liên quan trong hệ thống.'}
+${context ? context : 'Chưa có tài liệu cụ thể. Hãy tự động tư vấn bằng kiến thức chung của bạn.'}
 
 TIN NHẮN KHÁCH HÀNG:
 ${message}
