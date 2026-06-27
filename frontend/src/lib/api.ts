@@ -539,12 +539,14 @@ export const initApi = {
     for (const d of classesSnap.docs) {
       const classData = d.data();
       const enrollments = classData.enrollments || [];
-      if (enrollments.some((e: any) => e.studentId === studentId)) {
+      const myEnrollment = enrollments.find((e: any) => e.studentId === studentId);
+      if (myEnrollment) {
         const sessSnap = await getDocs(query(collection(db, 'sessions'), where('classId', '==', d.id)));
         const testsSnap = await getDocs(query(collection(db, 'tests'), where('classId', '==', d.id)));
         enrolledClasses.push({
           id: d.id,
           ...classData,
+          enrollment: myEnrollment,
           sessions: sessSnap.docs.map(s => ({ id: s.id, ...s.data() })),
           tests: testsSnap.docs.map(t => ({ id: t.id, ...t.data() }))
         });

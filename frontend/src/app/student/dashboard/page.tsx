@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogOut, BookOpen, Clock, Calendar, CheckCircle, XCircle, AlertCircle, RefreshCw, BarChart2, MonitorPlay } from 'lucide-react';
+import { LogOut, BookOpen, Clock, Calendar, CheckCircle, XCircle, AlertCircle, RefreshCw, BarChart2, MonitorPlay, MessageSquare } from 'lucide-react';
 import { classApi, studentAuthApi, initApi } from '@/lib/api';
 
 export default function StudentDashboard() {
@@ -239,6 +239,17 @@ export default function StudentDashboard() {
                       <MonitorPlay size={16} /> Vào phòng học (E-Learning)
                     </button>
                   </div>
+
+                  {c.enrollment?.teacherEvaluation && (
+                    <div style={{ marginTop: 24, padding: 16, background: 'rgba(0,122,255,0.05)', borderRadius: 12, border: '1px solid rgba(0,122,255,0.1)' }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent-blue)', textTransform: 'uppercase', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <MessageSquare size={16} /> Nhận xét từ Giáo viên
+                      </div>
+                      <div style={{ fontSize: 14, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                        {c.enrollment.teacherEvaluation}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Thống kê điểm danh */}

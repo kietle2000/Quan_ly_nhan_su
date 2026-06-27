@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { classApi } from '@/lib/api';
-import { AlertTriangle, TrendingDown, Clock, UserX, Mail, Phone } from 'lucide-react';
+import { AlertTriangle, TrendingDown, Clock, UserX, Mail, Phone, X, Save, Edit2 } from 'lucide-react';
 
 export default function ClassReportsPage() {
   const { id } = useParams() as { id: string };
@@ -12,6 +12,9 @@ export default function ClassReportsPage() {
   const [sessions, setSessions] = useState<any[]>([]);
   const [enrollments, setEnrollments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [evalModalOpen, setEvalModalOpen] = useState(false);
+  const [evalForm, setEvalForm] = useState({ studentId: '', studentName: '', teacherEvaluation: '' });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -36,6 +39,23 @@ export default function ClassReportsPage() {
   if (loading) {
     return <div style={{ padding: 40, textAlign: 'center' }}><span className="spinner"></span> Đang tải dữ liệu báo cáo...</div>;
   }
+
+  const handleSaveEvaluation = async () => {
+    setSaving(true);
+    try {
+      const en = enrollments.find(e => e.studentId === evalForm.studentId);
+      if (en) {
+        await classApi.updateEnrollment(en.id, { teacherEvaluation: evalForm.teacherEvaluation });
+        setEvalModalOpen(false);
+        window.location.reload();
+      } else {
+        alert('Học viên chưa có hồ sơ ghi danh (Enrollment) trong lớp này. Vui lòng kiểm tra lại tab Tổng quan.');
+      }
+    } catch (e) {
+      alert('Lỗi lưu nhận xét');
+    }
+    setSaving(false);
+  };
 
   const students = classData?.students || [];
 
@@ -74,16 +94,7 @@ export default function ClassReportsPage() {
 
     const en = enrollments.find(e => e.studentId === st.id);
     const tuitionStatus = en?.tuitionStatus || 3; // 1: Full, 2: Partial, 3: Unpaid
-    
-    // Tìm nhận xét gần nhất
-    let latestEvaluation = '';
-    const sortedSessions = [...sessions].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    for (const sess of sortedSessions) {
-      if (sess.evaluation && sess.evaluation.trim() !== '') {
-        latestEvaluation = sess.evaluation;
-        break;
-      }
-    }
+    const teacherEvaluation = en?.teacherEvaluation || '';
 
     const attendanceRate = sessions.length > 0 ? Math.round(((sessions.length - absent) / sessions.length) * 100) : 100;
 
@@ -102,7 +113,7 @@ export default function ClassReportsPage() {
       testScores,
       avgScore,
       tuitionStatus,
-      latestEvaluation,
+      teacherEvaluation,
       isAbsentAlert,
       isLowAvgAlert,
       isLowTestAlert,
@@ -192,7 +203,7 @@ export default function ClassReportsPage() {
                 <th style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', textAlign: 'center', minWidth: 100 }}>Chuyên cần</th>
                 <th style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', textAlign: 'center', minWidth: 120, background: 'var(--bg-hover)' }}>Điểm TB</th>
                 <th style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', textAlign: 'center', minWidth: 120 }}>Học phí</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', minWidth: 250 }}>Nhận xét mới nhất</th>
+                <th style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', minWidth: 250 }}>Nhận xét của giáo viên</th>
               </tr>
             </thead>
             <tbody>
@@ -225,9 +236,17 @@ export default function ClassReportsPage() {
                     {st.tuitionStatus === 3 && <span className="badge badge-red">Chưa thu</span>}
                   </td>
 
-                  <td style={{ padding: '12px 16px' }}>
-                    <div style={{ fontSize: 13, color: 'var(--text-secondary)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }} title={st.latestEvaluation}>
-                      {st.latestEvaluation || <span style={{ fontStyle: 'italic', opacity: 0.5 }}>Chưa có nhận xét</span>}
+                  <td 
+                    style={{ padding: '12px 16px', cursor: 'pointer', transition: 'background 0.2s' }} 
+                    onMouseEnter={e => e.currentTarget.style.background='rgba(0,122,255,0.05)'}
+                    onMouseLeave={e => e.currentTarget.style.background='transparent'}
+                    onClick={() => {
+                      setEvalForm({ studentId: st.id, studentName: st.fullName, teacherEvaluation: st.teacherEvaluation });
+                      setEvalModalOpen(true);
+                    }}
+                  >
+                    <div style={{ fontSize: 13, color: 'var(--text-secondary)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }} title={st.teacherEvaluation}>
+                      {st.teacherEvaluation || <span style={{ fontStyle: 'italic', color: 'var(--accent-blue)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Edit2 size={12}/> Nhập nhận xét</span>}
                     </div>
                   </td>
                 </tr>
@@ -236,6 +255,45 @@ export default function ClassReportsPage() {
           </table>
         </div>
       </div>
+
+      {evalModalOpen && (
+        <div className="modal-overlay" onClick={() => !saving && setEvalModalOpen(false)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ width: 500 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Nhận xét học viên</h3>
+              <button className="btn-icon" onClick={() => !saving && setEvalModalOpen(false)}>
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ padding: 16, background: 'var(--bg-secondary)', borderRadius: 8 }}>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>Học viên</div>
+                <div style={{ fontWeight: 600, fontSize: 16 }}>{evalForm.studentName}</div>
+              </div>
+              
+              <div>
+                <label className="form-label">Nội dung nhận xét</label>
+                <textarea 
+                  className="form-input" 
+                  rows={5} 
+                  placeholder="Nhập nhận xét về tình hình học tập, ưu điểm, cần cải thiện..."
+                  value={evalForm.teacherEvaluation}
+                  onChange={e => setEvalForm({...evalForm, teacherEvaluation: e.target.value})}
+                  style={{ width: '100%', resize: 'vertical' }}
+                ></textarea>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 24 }}>
+              <button className="btn btn-secondary" onClick={() => setEvalModalOpen(false)}>Hủy</button>
+              <button className="btn btn-primary" onClick={handleSaveEvaluation} disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {saving ? <span className="spinner"></span> : <Save size={16} />} Lưu nhận xét
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
