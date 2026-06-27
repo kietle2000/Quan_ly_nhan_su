@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { classApi } from '@/lib/api';
 import { ArrowLeft, Check, X, Clock, Calendar, Save, Plus, ChevronRight, AlertCircle, RefreshCw, HelpCircle, Trash2, BarChart2, Users, Download, Edit2, PlayCircle, FileText, MonitorPlay, Link as LinkIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import ElearningBuilder from './ElearningBuilder';
 
 export default function AttendancePage({ params }: { params: Promise<{ id: string }> }) {
   const { user } = useAuth();
@@ -508,9 +509,12 @@ export default function AttendancePage({ params }: { params: Promise<{ id: strin
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto', paddingBottom: 60 }}>
 
-
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 24, borderBottom: '1px solid var(--border)', paddingBottom: 16 }}>
+      {classData?.isOnlineCourse ? (
+        <ElearningBuilder classId={classId as string} initialSessions={sessions} onSessionsUpdated={setSessions} />
+      ) : (
+        <>
+          {/* Tabs */}
+          <div style={{ display: 'flex', gap: 12, marginBottom: 24, borderBottom: '1px solid var(--border)', paddingBottom: 16 }}>
         <button 
           onClick={() => setActiveTab('daily')}
           className={`btn ${activeTab === 'daily' ? 'btn-primary' : ''}`}
@@ -899,6 +903,8 @@ export default function AttendancePage({ params }: { params: Promise<{ id: strin
             </form>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

@@ -35,7 +35,7 @@ export default function ClassDetailLayout({ children }: { children: React.ReactN
 
   const tabs = [
     { name: 'Tổng quan & Học viên', path: `/dashboard/classes/${id}`, icon: <Info size={16} />, exact: true },
-    { name: 'Lộ trình & Điểm danh', path: `/dashboard/classes/${id}/attendance`, icon: <Check size={16} /> },
+    { name: classData?.isOnlineCourse ? 'Giáo trình E-Learning' : 'Lộ trình & Điểm danh', path: `/dashboard/classes/${id}/attendance`, icon: classData?.isOnlineCourse ? <BookOpen size={16} /> : <Check size={16} /> },
     { name: 'Bài thi & Điểm số', path: `/dashboard/classes/${id}/tests`, icon: <BarChart2 size={16} /> },
     { name: 'Báo cáo Lớp', path: `/dashboard/classes/${id}/reports`, icon: <PieChart size={16} /> },
   ];
@@ -66,6 +66,7 @@ export default function ClassDetailLayout({ children }: { children: React.ReactN
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <span className="badge badge-blue">{classData.subjectType}</span>
+              {classData.isOnlineCourse && <span className="badge badge-purple" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><BookOpen size={12}/> Khóa học E-Learning</span>}
               <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                 Giảng viên: <strong>{classData.instructorName || employees.find(e => e.id === classData.instructorId)?.fullName || 'Chưa phân công'}</strong>
               </span>

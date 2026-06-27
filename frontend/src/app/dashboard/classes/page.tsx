@@ -137,7 +137,9 @@ export default function ClassesPage() {
     instructorId: '',
     startDate: '',
     endDate: '',
-    schedules: [] as Array<{ dayOfWeek: number; startTime: string; endTime: string }>
+    schedules: [] as Array<{ dayOfWeek: number; startTime: string; endTime: string }>,
+    isOnlineCourse: false,
+    accessDurationDays: 365
   });
   
   // Create Student Form
@@ -1294,7 +1296,9 @@ export default function ClassesPage() {
                           instructorId: selectedClass.instructorId,
                           startDate: selectedClass.startDate ? selectedClass.startDate.split('T')[0] : '', 
                           endDate: selectedClass.endDate ? selectedClass.endDate.split('T')[0] : '',
-                          schedules: selectedClass.schedules ? selectedClass.schedules.map(s => ({ dayOfWeek: s.dayOfWeek, startTime: formatTime(s.startTime), endTime: formatTime(s.endTime) })) : []
+                          schedules: selectedClass.schedules ? selectedClass.schedules.map(s => ({ dayOfWeek: s.dayOfWeek, startTime: formatTime(s.startTime), endTime: formatTime(s.endTime) })) : [],
+                          isOnlineCourse: selectedClass.isOnlineCourse || false,
+                          accessDurationDays: selectedClass.accessDurationDays || 365
                         });
                         setIsEditingClass(true);
                       }}
@@ -1350,7 +1354,33 @@ export default function ClassesPage() {
                       </div>
                     </div>
                     
-                    <div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div>
+                        <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                          <input 
+                            type="checkbox" 
+                            checked={classForm.isOnlineCourse} 
+                            onChange={e => setClassForm({ ...classForm, isOnlineCourse: e.target.checked })} 
+                          />
+                          Là Khóa học Online (E-Learning)
+                        </label>
+                      </div>
+                      {classForm.isOnlineCourse && (
+                        <div>
+                          <label className="form-label">Thời hạn truy cập (ngày)</label>
+                          <input 
+                            type="number" 
+                            className="form-input" 
+                            value={classForm.accessDurationDays} 
+                            onChange={e => setClassForm({ ...classForm, accessDurationDays: Number(e.target.value) })} 
+                            min={1}
+                          />
+                        </div>
+                      )}
+                    </div>
+                    
+                    {!classForm.isOnlineCourse && (
+                      <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                         <label className="form-label" style={{ margin: 0 }}>Lịch học ca học</label>
                         <button type="button" className="btn btn-secondary btn-sm" onClick={addScheduleRow}>+ Ca học</button>
@@ -1368,6 +1398,7 @@ export default function ClassesPage() {
                         ))}
                       </div>
                     </div>
+                    )}
 
                     <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
                       <button className="btn btn-primary" onClick={handleSaveClassEdit} disabled={saving}>{saving ? 'Đang lưu...' : 'Lưu thay đổi'}</button>
@@ -1600,7 +1631,33 @@ export default function ClassesPage() {
                   </select>
                 </div>
 
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 8 }}>
+                      <input 
+                        type="checkbox" 
+                        checked={classForm.isOnlineCourse} 
+                        onChange={e => setClassForm({ ...classForm, isOnlineCourse: e.target.checked })} 
+                      />
+                      Là Khóa học Online (E-Learning)
+                    </label>
+                  </div>
+                  {classForm.isOnlineCourse && (
+                    <div>
+                      <label className="form-label">Thời hạn truy cập (ngày)</label>
+                      <input 
+                        type="number" 
+                        className="form-input" 
+                        value={classForm.accessDurationDays} 
+                        onChange={e => setClassForm({ ...classForm, accessDurationDays: Number(e.target.value) })} 
+                        min={1}
+                      />
+                    </div>
+                  )}
+                </div>
+
                 {/* Schedules Builder */}
+                {!classForm.isOnlineCourse && (
                 <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginTop: 6 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                     <label className="form-label" style={{ margin: 0, fontWeight: 700 }}>Thiết lập Lịch học ca học</label>
@@ -1666,6 +1723,7 @@ export default function ClassesPage() {
                     )}
                   </div>
                 </div>
+                )}
 
               </div>
 

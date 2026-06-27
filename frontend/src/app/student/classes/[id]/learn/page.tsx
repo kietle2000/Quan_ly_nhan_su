@@ -152,6 +152,12 @@ export default function StudentClassLearnPage() {
           .mobile-tabs {
             display: none !important;
           }
+          .tab-details {
+            display: flex !important;
+          }
+          .tab-curriculum {
+            display: none !important;
+          }
         }
       `}} />
 
@@ -177,60 +183,6 @@ export default function StudentClassLearnPage() {
       {/* Main Body */}
       <div className="learn-body" style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         
-        {/* Sidebar - Lộ trình (Desktop chỉ) */}
-        <div className="learn-sidebar" style={{ width: 350, background: 'white', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-          
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 8, color: 'var(--text-secondary)' }}>
-              <span>Tiến độ hoàn thành</span>
-              <span style={{ fontWeight: 600, color: 'var(--accent-blue)' }}>{percentComplete}%</span>
-            </div>
-            <div style={{ height: 6, background: 'var(--bg-secondary)', borderRadius: 4, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${percentComplete}%`, background: 'var(--accent-blue)', transition: 'width 0.3s ease' }}></div>
-            </div>
-          </div>
-
-          <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
-            {lessons.map((lesson, index) => {
-              const isFinished = progress.includes(lesson.id);
-              const isLocked = index > 0 && !progress.includes(lessons[index - 1].id);
-              const isActive = activeLessonId === lesson.id;
-              
-              return (
-                <div 
-                  key={lesson.id} 
-                  onClick={() => !isLocked && setActiveLessonId(lesson.id)}
-                  style={{ 
-                    display: 'flex', alignItems: 'center', padding: '12px 16px', margin: '4px 0',
-                    borderRadius: 8, cursor: isLocked ? 'not-allowed' : 'pointer',
-                    background: isActive ? 'var(--bg-hover)' : 'transparent',
-                    border: isActive ? '1px solid var(--border)' : '1px solid transparent',
-                    opacity: isLocked ? 0.6 : 1
-                  }}
-                >
-                  <div style={{ 
-                    width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: 12, flexShrink: 0,
-                    background: isFinished ? 'var(--accent-green)' : (isLocked ? 'var(--bg-secondary)' : 'var(--bg-secondary)'),
-                    color: isFinished ? 'white' : 'var(--text-secondary)'
-                  }}>
-                    {isFinished ? <Check size={14} /> : (isLocked ? <Lock size={12} /> : <span style={{ fontSize: 12, fontWeight: 600 }}>{index + 1}</span>)}
-                  </div>
-                  
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: isActive ? 600 : 500, color: isLocked ? 'var(--text-muted)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      Buổi {index + 1}: {lesson.topic || 'Chưa cập nhật nội dung'}
-                    </div>
-                    <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-                      {lesson.videoUrl && <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><PlayCircle size={12} /> Có Video</span>}
-                      {lesson.materialUrl && <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><FileText size={12} /> Tài liệu</span>}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
         {/* Main Content Area */}
         <div className="learn-main" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', background: 'white' }}>
           
@@ -249,23 +201,31 @@ export default function StudentClassLearnPage() {
               Bài giảng
             </button>
           </div>
+          
           {activeLesson ? (
             <div style={{ padding: '0', flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary)' }}>
               
               {/* === TAB BÀI GIẢNG === */}
-              <div style={{ display: mobileTab === 'details' ? 'flex' : 'none', flexDirection: 'column', flex: 1 }}>
+              <div className="tab-details" style={{ display: mobileTab === 'details' ? 'flex' : 'none', flexDirection: 'column', flex: 1 }}>
                 
-                {/* Video Player */}
-                {activeLesson.videoUrl ? (
-                  <div 
-                    className="video-container"
-                    onClick={() => setShowVideoModal(true)}
-                    style={{ width: '100%', background: 'black', position: 'relative', flexShrink: 0, aspectRatio: '16/9', cursor: 'pointer', overflow: 'hidden' }}
-                  >
-                    <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'white', background: 'rgba(0,0,0,0.5)' }}>
-                      <PlayCircle size={64} style={{ color: 'var(--accent-blue)', background: 'white', borderRadius: '50%', padding: 4 }} />
-                      <div style={{ marginTop: 12, fontSize: 16, fontWeight: 600 }}>Nhấn để Phát Video Full Màn Hình</div>
-                    </div>
+                {/* Content Player */}
+                {activeLesson.lessonType === 'test' ? (
+                  <div className="video-container" style={{ width: '100%', aspectRatio: '16/9', background: 'linear-gradient(135deg, #fdf4ff, #fae8ff)', display: 'flex', flexDirection: 'column', gap: 16, alignItems: 'center', justifyContent: 'center', color: 'var(--accent-purple)', borderBottom: '1px solid var(--border)' }}>
+                    <FileText size={64} style={{ color: '#d946ef' }} />
+                    <h2 style={{ margin: 0, fontSize: 24, color: '#a21caf' }}>Bài kiểm tra đánh giá năng lực</h2>
+                    <p style={{ margin: 0, color: '#86198f', fontSize: 15 }}>Vui lòng làm bài kiểm tra để tiếp tục lộ trình học.</p>
+                    <button className="btn btn-primary" style={{ background: '#d946ef', border: 'none', padding: '12px 32px', borderRadius: 30, fontSize: 16, marginTop: 12 }}>
+                      Bắt đầu làm bài
+                    </button>
+                  </div>
+                ) : activeLesson.videoUrl ? (
+                  <div className="video-container" style={{ width: '100%', background: 'black', position: 'relative', flexShrink: 0, aspectRatio: '16/9', overflow: 'hidden' }}>
+                    <iframe 
+                      src={activeLesson.videoUrl.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/')} 
+                      style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
+                      allowFullScreen
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    ></iframe>
                   </div>
                 ) : (
                   <div className="video-container" style={{ width: '100%', aspectRatio: '16/9', background: 'var(--bg-hover)', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
@@ -296,9 +256,15 @@ export default function StudentClassLearnPage() {
                         fontWeight: 600
                       }}
                     >
-                      <CheckCircle size={18} /> {isCompleted ? 'Đã hoàn thành' : 'Hoàn thành buổi học'}
+                      <CheckCircle size={18} /> {isCompleted ? 'Đã hoàn thành' : 'Hoàn thành bài học'}
                     </button>
                   </div>
+
+                  {activeLesson.description && (
+                    <div style={{ fontSize: 15, lineHeight: 1.6, color: 'var(--text-primary)', marginBottom: 24, whiteSpace: 'pre-wrap' }}>
+                      {activeLesson.description}
+                    </div>
+                  )}
 
                   {activeLesson.materialUrl && (
                     <div style={{ padding: 20, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, marginTop: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
@@ -318,7 +284,7 @@ export default function StudentClassLearnPage() {
               </div>
 
               {/* === TAB LỘ TRÌNH (Chỉ Mobile) === */}
-              <div className="mobile-tabs" style={{ display: mobileTab === 'curriculum' ? 'block' : 'none', flex: 1, overflowY: 'auto', padding: 16, background: 'var(--bg-secondary)' }}>
+              <div className="mobile-tabs-content tab-curriculum" style={{ display: mobileTab === 'curriculum' ? 'block' : 'none', flex: 1, overflowY: 'auto', padding: 16, background: 'var(--bg-secondary)' }}>
                 <div style={{ background: 'white', borderRadius: 12, padding: 16, marginBottom: 16 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 8, color: 'var(--text-secondary)' }}>
                     <span>Tiến độ hoàn thành</span>
@@ -383,6 +349,64 @@ export default function StudentClassLearnPage() {
             </div>
           )}
         </div>
+
+        {/* Sidebar - Lộ trình (Desktop chỉ) */}
+        <div className="learn-sidebar" style={{ width: 350, background: 'white', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+          
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 8, color: 'var(--text-secondary)' }}>
+              <span>Tiến độ hoàn thành</span>
+              <span style={{ fontWeight: 600, color: 'var(--accent-blue)' }}>{percentComplete}%</span>
+            </div>
+            <div style={{ height: 6, background: 'var(--bg-secondary)', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${percentComplete}%`, background: 'var(--accent-blue)', transition: 'width 0.3s ease' }}></div>
+            </div>
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
+            {lessons.map((lesson, index) => {
+              const isFinished = progress.includes(lesson.id);
+              const isLocked = index > 0 && !progress.includes(lessons[index - 1].id);
+              const isActive = activeLessonId === lesson.id;
+              
+              return (
+                <div 
+                  key={lesson.id} 
+                  onClick={() => !isLocked && setActiveLessonId(lesson.id)}
+                  style={{ 
+                    display: 'flex', alignItems: 'center', padding: '12px 16px', margin: '4px 0',
+                    borderRadius: 8, cursor: isLocked ? 'not-allowed' : 'pointer',
+                    background: isActive ? 'var(--bg-hover)' : 'transparent',
+                    border: isActive ? '1px solid var(--border)' : '1px solid transparent',
+                    opacity: isLocked ? 0.6 : 1
+                  }}
+                >
+                  <div style={{ 
+                    width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: 12, flexShrink: 0,
+                    background: isFinished ? 'var(--accent-green)' : (isLocked ? 'var(--bg-secondary)' : 'var(--bg-secondary)'),
+                    color: isFinished ? 'white' : 'var(--text-secondary)'
+                  }}>
+                    {isFinished ? <Check size={14} /> : (isLocked ? <Lock size={12} /> : <span style={{ fontSize: 12, fontWeight: 600 }}>{index + 1}</span>)}
+                  </div>
+                  
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: isActive ? 600 : 500, color: isLocked ? 'var(--text-muted)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {index + 1}. {lesson.topic || 'Chưa cập nhật nội dung'}
+                    </div>
+                    <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                      {lesson.lessonType === 'test' ? (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--accent-purple)' }}><FileText size={12} /> Kiểm tra</span>
+                      ) : lesson.videoUrl ? (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><PlayCircle size={12} /> Video</span>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
       </div>
 
       {/* Video Modal */}

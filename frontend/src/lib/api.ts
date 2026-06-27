@@ -269,7 +269,15 @@ export const classApi = {
     if (!classDoc.exists()) throw new Error('Lớp học không tồn tại');
     const classData = classDoc.data();
     
-    const newEnrollment = { id: uuidv4(), classId, studentId: data.studentId, studentName: data.fullName, ...data, createdAt: new Date().toISOString() };
+    let expiresAt = null;
+    if (classData.isOnlineCourse) {
+      const days = classData.accessDurationDays || 365;
+      const d = new Date();
+      d.setDate(d.getDate() + days);
+      expiresAt = d.toISOString();
+    }
+    
+    const newEnrollment = { id: uuidv4(), classId, studentId: data.studentId, studentName: data.fullName, ...data, expiresAt, createdAt: new Date().toISOString() };
     const newStudent = { id: data.studentId, fullName: data.fullName, phone: data.phone, email: data.email };
     
     await updateDoc(classRef, {

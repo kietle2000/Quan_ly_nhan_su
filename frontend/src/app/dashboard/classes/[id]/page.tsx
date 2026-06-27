@@ -21,6 +21,7 @@ export default function ClassOverviewPage() {
   const [allStudents, setAllStudents] = useState<any[]>([]);
   const [editingEnrollment, setEditingEnrollment] = useState<any>(null);
   const [editEnrollmentForm, setEditEnrollmentForm] = useState({ tuitionStatus: 3, learningGoal: '', notes: '' });
+  const [selectedEnrollmentIds, setSelectedEnrollmentIds] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -91,6 +92,21 @@ export default function ClassOverviewPage() {
       window.location.reload();
     } catch (err: any) {
       alert(err.response?.data?.error || 'Lỗi khi xóa học viên');
+    }
+    setSaving(false);
+  };
+
+  const handleBulkRemoveStudents = async () => {
+    if (!confirm(`Bạn có chắc chắn muốn xóa ${selectedEnrollmentIds.length} học viên đã chọn khỏi lớp?`)) return;
+    setSaving(true);
+    try {
+      // Loop over and delete
+      for (const id of selectedEnrollmentIds) {
+        await classApi.deleteEnrollment(id);
+      }
+      window.location.reload();
+    } catch (err: any) {
+      alert('Lỗi khi xóa danh sách học viên');
     }
     setSaving(false);
   };
@@ -365,6 +381,11 @@ export default function ClassOverviewPage() {
             <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 14 }}>Quản lý thông tin và học phí của học viên trong lớp</p>
           </div>
           <div style={{ display: 'flex', gap: 12 }}>
+            {selectedEnrollmentIds.length > 0 && (
+              <button className="btn btn-danger" onClick={handleBulkRemoveStudents} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 8, fontWeight: 600 }}>
+                <Trash2 size={18} /> Xóa đã chọn ({selectedEnrollmentIds.length})
+              </button>
+            )}
             <input type="file" ref={fileInputRef} hidden accept=".xlsx, .xls" onChange={handleExcelImport} />
             <button className="btn btn-secondary" onClick={() => fileInputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 8, fontWeight: 600 }}>
               <Upload size={18} /> Nhập Excel
@@ -389,6 +410,17 @@ export default function ClassOverviewPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: 800 }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid var(--border)', background: 'var(--bg-secondary)' }}>
+                  <th style={{ padding: '16px 24px', width: 40 }}>
+                    <input 
+                      type="checkbox" 
+                      checked={enrollments.length > 0 && selectedEnrollmentIds.length === enrollments.length}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelectedEnrollmentIds(enrollments.map((en: any) => en.id));
+                        else setSelectedEnrollmentIds([]);
+                      }}
+                      style={{ width: 16, height: 16, cursor: 'pointer' }}
+                    />
+                  </th>
                   <th style={{ padding: '16px 24px', fontWeight: 600, color: 'var(--text-secondary)', fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.5 }}>Học viên</th>
                   <th style={{ padding: '16px 24px', fontWeight: 600, color: 'var(--text-secondary)', fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.5 }}>Liên hệ</th>
                   <th style={{ padding: '16px 24px', fontWeight: 600, color: 'var(--text-secondary)', fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.5 }}>Học phí</th>
@@ -400,7 +432,20 @@ export default function ClassOverviewPage() {
                 {students.map((student: any, idx: number) => {
                   const en = enrollments.find((e: any) => e.studentId === student.id);
                   return (
-                    <tr key={student.id} style={{ borderBottom: idx === students.length - 1 ? 'none' : '1px solid var(--border)', transition: 'background 0.2s' }} onMouseEnter={e => e.currentTarget.style.background='var(--bg-hover)'} onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                    <tr key={student.id} style={{ borderBottom: idx === students.length - 1 ? 'none' : '1px solid var(--border)', transition: 'background 0.2s', background: en && selectedEnrollmentIds.includes(en.id) ? 'var(--bg-hover)' : 'transparent' }} onMouseEnter={e => e.currentTarget.style.background='var(--bg-hover)'} onMouseLeave={e => e.currentTarget.style.background=en && selectedEnrollmentIds.includes(en.id) ? 'var(--bg-hover)' : 'transparent'}>
+                      <td style={{ padding: '20px 24px' }}>
+                        {en && (
+                          <input 
+                            type="checkbox" 
+                            checked={selectedEnrollmentIds.includes(en.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) setSelectedEnrollmentIds(prev => [...prev, en.id]);
+                              else setSelectedEnrollmentIds(prev => prev.filter(id => id !== en.id));
+                            }}
+                            style={{ width: 16, height: 16, cursor: 'pointer' }}
+                          />
+                        )}
+                      </td>
                       <td style={{ padding: '20px 24px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                           <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--accent-purple)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 16 }}>
