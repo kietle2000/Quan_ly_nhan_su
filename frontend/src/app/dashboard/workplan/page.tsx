@@ -7,7 +7,7 @@ import { getISOWeek, getYear, setISOWeek as dateFnsSetISOWeek, setYear as dateFn
 import { vi } from 'date-fns/locale';
 
 interface Employee { id: string; fullName: string; role?: string; }
-interface WorkPlanItem { id?: string; taskName: string; actionPlan: string; supporterId: string | null; deadline: string; kpi: string; status: string; notes: string; }
+interface WorkPlanItem { id?: string; date: string; taskName: string; actionPlan: string; supporterId: string | null; deadline: string; kpi: string; status: string; notes: string; }
 interface WeeklyWorkPlan { 
   id?: string; weekNumber: number; year: number; employeeId: string; weekTarget: string; notes: string; items: WorkPlanItem[]; 
   targetNew?: number; targetContacted?: number; targetConsulting?: number; targetMeeting?: number; targetSigned?: number;
@@ -39,6 +39,13 @@ export default function WorkPlanPage() {
   const [saving, setSaving] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  
+  // States for Daily Work Plan Items
+  const [showItemForm, setShowItemForm] = useState(false);
+  const [itemForm, setItemForm] = useState<WorkPlanItem>({
+    date: getLocalDateString(), taskName: '', actionPlan: '', supporterId: '', deadline: '', kpi: '', status: 'Pending', notes: ''
+  });
+  const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
   
   const getDateRangeStr = () => {
     try {
@@ -132,27 +139,52 @@ export default function WorkPlanPage() {
     setSubmittingFeedback(false);
   };
 
-  const addItem = () => {
-    if (!plan) return;
-    setPlan({ ...plan, items: [...(plan.items || []), { taskName: '', actionPlan: '', supporterId: null, deadline: getLocalDateString(), kpi: '', status: 'Pending', notes: '' }] });
-  };
 
-  const updateItem = (index: number, field: keyof WorkPlanItem, value: any) => {
+
+  const handleSaveItem = async () => {
     if (!plan) return;
+    if (!itemForm.taskName) return alert('Vui lòng nhập Mục tiêu & Đầu việc cụ thể');
+    
     const newItems = [...(plan.items || [])];
-    newItems[index] = { ...newItems[index], [field]: value };
-    setPlan({ ...plan, items: newItems });
+    if (editingItemIndex !== null) {
+      newItems[editingItemIndex] = { ...itemForm };
+    } else {
+      newItems.push({ ...itemForm, id: Math.random().toString(36).substring(7) });
+    }
+    
+    const newPlan = { ...plan, items: newItems };
+    setPlan(newPlan);
+    setShowItemForm(false);
+    setItemForm({ date: getLocalDateString(), taskName: '', actionPlan: '', supporterId: '', deadline: '', kpi: '', status: 'Pending', notes: '' });
+    setEditingItemIndex(null);
+    
+    // Auto save to backend immediately
+    try {
+      const res = await workPlanApi.savePlan(newPlan);
+      if (res.data?.id && !newPlan.id) {
+        setPlan(prev => prev ? { ...prev, id: res.data.id } : null);
+      }
+    } catch {
+      alert('Đã có lỗi xảy ra khi lưu lên server.');
+    }
   };
 
-  const removeItem = async (index: number, itemId?: string) => {
-    if (!plan) return;
-    if (itemId && !confirm('Xóa công việc này khỏi CSDL?')) return;
-    if (itemId) {
-      try { await workPlanApi.deleteItem(plan.id as string, itemId); } catch { alert('Lỗi xóa'); return; }
-    }
+  const handleDeleteItem = async (index: number, itemId?: string) => {
+    if (!plan || !confirm('Bạn có chắc chắn muốn xóa đầu việc này?')) return;
+    
     const newItems = [...(plan.items || [])];
     newItems.splice(index, 1);
-    setPlan({ ...plan, items: newItems });
+    const newPlan = { ...plan, items: newItems };
+    setPlan(newPlan);
+    
+    // Save to backend
+    try {
+      if (plan.id) {
+        await workPlanApi.savePlan(newPlan);
+      }
+    } catch {
+      alert('Lỗi xóa trên server');
+    }
   };
   const autoGenerateComments = () => {
     if (!plan) return;
@@ -283,6 +315,126 @@ export default function WorkPlanPage() {
       ) : plan ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
+
+            <div className="glass-card" style={{ padding: 20, marginTop: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', textTransform: 'uppercase', margin: 0 }}>
+                  Bản kế hoạch công việc tuần
+                </h3>
+                {!isViewingOthers && (
+                  <button className="btn btn-primary btn-sm" onClick={() => {
+                    setItemForm({ date: getLocalDateString(), taskName: '', actionPlan: '', supporterId: '', deadline: '', kpi: '', status: 'Pending', notes: '' });
+                    setEditingItemIndex(null);
+                    setShowItemForm(true);
+                  }}>
+                    <Plus size={16} /> Thêm đầu việc
+                  </button>
+                )}
+              </div>
+
+              {/* Bảng Kế hoạch chi tiết */}
+              <div style={{ overflowX: 'auto', marginBottom: 20 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ background: '#1e3a8a', color: 'white', fontSize: 13 }}>
+                      <th style={{ padding: '12px', border: '1px solid var(--border)', width: '10%' }}>NGÀY</th>
+                      <th style={{ padding: '12px', border: '1px solid var(--border)', width: '5%', textAlign: 'center' }}>STT</th>
+                      <th style={{ padding: '12px', border: '1px solid var(--border)', width: '20%' }}>Mục tiêu & Đầu việc cụ thể</th>
+                      <th style={{ padding: '12px', border: '1px solid var(--border)', width: '15%' }}>Kênh triển khai / Cách làm</th>
+                      <th style={{ padding: '12px', border: '1px solid var(--border)', width: '10%' }}>Nguồn lực / Hỗ trợ</th>
+                      <th style={{ padding: '12px', border: '1px solid var(--border)', width: '10%' }}>Thời hạn</th>
+                      <th style={{ padding: '12px', border: '1px solid var(--border)', width: '10%' }}>KPI mong đợi</th>
+                      <th style={{ padding: '12px', border: '1px solid var(--border)', width: '15%' }}>Ghi chú</th>
+                      {!isViewingOthers && <th style={{ padding: '12px', border: '1px solid var(--border)', width: '5%', textAlign: 'center' }}>Thao tác</th>}
+                    </tr>
+                  </thead>
+                  <tbody style={{ fontSize: 13 }}>
+                    {(() => {
+                      const items = plan.items || [];
+                      if (items.length === 0) return <tr><td colSpan={9} style={{ padding: 20, textAlign: 'center', color: 'var(--text-secondary)' }}>Chưa có đầu việc nào.</td></tr>;
+                      
+                      // Group by Date
+                      const groupedByDate: Record<string, typeof items> = {};
+                      const sortedItems = [...items].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                      sortedItems.forEach(item => {
+                        const d = item.date || 'Không xác định';
+                        if (!groupedByDate[d]) groupedByDate[d] = [];
+                        groupedByDate[d].push(item);
+                      });
+
+                      const rows: any[] = [];
+                      Object.keys(groupedByDate).forEach(dateStr => {
+                        const dateItems = groupedByDate[dateStr];
+                        const dateObj = new Date(dateStr);
+                        const dayOfWeek = isNaN(dateObj.getTime()) ? '' : `Thứ ${dateObj.getDay() === 0 ? 'CN' : dateObj.getDay() + 1}`;
+                        const displayDate = isNaN(dateObj.getTime()) ? dateStr : `${dayOfWeek} ngày ${format(dateObj, 'dd/MM')}`;
+                        
+                        dateItems.forEach((item, idx) => {
+                          const globalIdx = items.findIndex(i => i.id === item.id);
+                          rows.push(
+                            <tr key={item.id || globalIdx} style={{ borderBottom: '1px solid var(--border)' }}>
+                              {idx === 0 && (
+                                <td rowSpan={dateItems.length} style={{ padding: '12px', border: '1px solid var(--border)', fontWeight: 600, verticalAlign: 'top', background: 'var(--bg-secondary)' }}>
+                                  {displayDate.toUpperCase()}
+                                </td>
+                              )}
+                              <td style={{ padding: '12px', border: '1px solid var(--border)', textAlign: 'center' }}>{idx + 1}</td>
+                              <td style={{ padding: '12px', border: '1px solid var(--border)' }}>{item.taskName}</td>
+                              <td style={{ padding: '12px', border: '1px solid var(--border)' }}>{item.actionPlan}</td>
+                              <td style={{ padding: '12px', border: '1px solid var(--border)' }}>
+                                {employees.find(e => e.id === item.supporterId)?.fullName || item.supporterId || '---'}
+                              </td>
+                              <td style={{ padding: '12px', border: '1px solid var(--border)' }}>{item.deadline}</td>
+                              <td style={{ padding: '12px', border: '1px solid var(--border)' }}>{item.kpi}</td>
+                              <td style={{ padding: '12px', border: '1px solid var(--border)' }}>{item.notes}</td>
+                              {!isViewingOthers && (
+                                <td style={{ padding: '12px', border: '1px solid var(--border)', textAlign: 'center' }}>
+                                  <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                                    <button className="btn btn-secondary btn-sm" style={{ padding: '4px 8px' }} onClick={() => {
+                                      setItemForm({ ...item, date: item.date || dateStr });
+                                      setEditingItemIndex(globalIdx);
+                                      setShowItemForm(true);
+                                    }}>Sửa</button>
+                                    <button className="btn btn-secondary btn-sm" style={{ padding: '4px 8px', color: 'var(--accent-red)' }} onClick={() => handleDeleteItem(globalIdx, item.id)}>Xóa</button>
+                                  </div>
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        });
+                      });
+                      return rows;
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Form thêm sửa đầu việc */}
+              {showItemForm && !isViewingOthers && (
+                <div style={{ padding: 16, background: 'var(--bg-secondary)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                  <h4 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 600 }}>{editingItemIndex !== null ? 'Sửa đầu việc' : 'Thêm đầu việc mới'}</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                    <div><label className="form-label">Ngày thực hiện *</label><input type="date" className="form-input" required value={itemForm.date} onChange={e => setItemForm({...itemForm, date: e.target.value})} /></div>
+                    <div><label className="form-label">Mục tiêu & Đầu việc cụ thể *</label><input type="text" className="form-input" required placeholder="Ví dụ: Tìm kiếm data du học sinh..." value={itemForm.taskName} onChange={e => setItemForm({...itemForm, taskName: e.target.value})} /></div>
+                    <div><label className="form-label">Kênh triển khai / Cách làm</label><input type="text" className="form-input" placeholder="Ví dụ: Đăng bài group Facebook..." value={itemForm.actionPlan} onChange={e => setItemForm({...itemForm, actionPlan: e.target.value})} /></div>
+                    <div>
+                      <label className="form-label">Nguồn lực / Người hỗ trợ</label>
+                      <select className="form-input" value={itemForm.supporterId || ''} onChange={e => setItemForm({...itemForm, supporterId: e.target.value})}>
+                        <option value="">Không có</option>
+                        {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.fullName}</option>)}
+                      </select>
+                    </div>
+                    <div><label className="form-label">Thời hạn hoàn thành</label><input type="text" className="form-input" placeholder="Ví dụ: Trước thứ Năm / 8h-9h30..." value={itemForm.deadline} onChange={e => setItemForm({...itemForm, deadline: e.target.value})} /></div>
+                    <div><label className="form-label">KPI con số mong đợi</label><input type="text" className="form-input" placeholder="Ví dụ: 20 data..." value={itemForm.kpi} onChange={e => setItemForm({...itemForm, kpi: e.target.value})} /></div>
+                    <div style={{ gridColumn: '1 / -1' }}><label className="form-label">Ghi chú / Đề xuất bổ sung</label><textarea className="form-input" rows={2} placeholder="..." value={itemForm.notes} onChange={e => setItemForm({...itemForm, notes: e.target.value})} /></div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    <button className="btn btn-secondary" onClick={() => { setShowItemForm(false); setEditingItemIndex(null); }}>Hủy</button>
+                    <button className="btn btn-primary" onClick={handleSaveItem}>Lưu đầu việc</button>
+                  </div>
+                </div>
+              )}
+            </div>
 
             <div className="glass-card" style={{ padding: 20, marginTop: 20 }}>
             <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: 'var(--text-primary)', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
