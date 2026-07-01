@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import fs from 'fs';
+import { put } from '@vercel/blob';
 
 export async function POST(request: Request) {
   try {
@@ -15,10 +16,21 @@ export async function POST(request: Request) {
     const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
     const timestamp = Date.now();
     const uniqueName = `${timestamp}_${safeName}`;
-
-    // Fallback to local storage (for local development)
+    
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
+
+    // If Vercel Blob is configured (usually on Vercel deployment), use it
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      const blob = await put(`reports/${uniqueName}`, buffer, {
+        access: 'public',
+        contentType: file.type || 'application/octet-stream',
+        token: process.env.BLOB_READ_WRITE_TOKEN
+      });
+      return NextResponse.json({ success: true, fileUrl: blob.url });
+    }
+
+    // Fallback to local storage (for local development)
 
     const uploadDir = join(process.cwd(), 'public', 'uploads');
     if (!fs.existsSync(uploadDir)) {

@@ -177,7 +177,8 @@ export default function ReportsPage() {
       fetchReports();
     } catch (err: any) {
       setReports(prev => prev.filter(r => r.id !== tempId));
-      alert(err.response?.data?.error || 'Lỗi nộp báo cáo');
+      console.error("Submit Error:", err);
+      alert(err.message || err.response?.data?.error || 'Lỗi nộp báo cáo');
     }
     setSubmitting(false);
   };
