@@ -161,7 +161,7 @@ export default function ReportsPage() {
         const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
         const uploadData = await uploadRes.json();
         if (uploadData.success) {
-          payload.attachments = [{ fileName: submittedFile.name, filePath: uploadData.fileUrl, fileType: submittedFile.type }];
+          payload.attachments = [{ fileName: submittedFile.name, filePath: uploadData.url || uploadData.fileUrl, fileType: submittedFile.type }];
         } else {
           throw new Error('Lỗi upload file: ' + uploadData.error);
         }
