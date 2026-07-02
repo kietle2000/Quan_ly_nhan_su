@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { reportApi, employeeApi } from '@/lib/api';
-import { FileText, Paperclip, CheckCircle, Plus } from 'lucide-react';
+import { FileText, Paperclip, CheckCircle, Upload, Plus } from 'lucide-react';
 import { getISOWeek, getYear } from 'date-fns';
 
 const getLocalDateString = (d = new Date()) => {
@@ -23,7 +23,7 @@ const getDisplayUrl = (filePath: string) => {
       return `https://drive.google.com/thumbnail?authuser=0&sz=s4000&id=${fileIdMatch[1]}`;
     }
   }
-  return filePath;
+  return filePath.startsWith('http') ? filePath : `http://localhost:5000${filePath}`;
 };
 
 export default function ReportsPage() {
@@ -37,7 +37,7 @@ export default function ReportsPage() {
   // Submit Form state
   const [showSubmit, setShowSubmit] = useState(false);
   const [form, setForm] = useState<any>({ date: getLocalDateString(), content: '', progress: 100, week: getISOWeek(new Date()), nextPlan: '', targetNew: 0, targetContacted: 0, targetConsulting: 0, targetMeeting: 0, targetSigned: 0, evalNew: '', evalContacted: '', evalConsulting: '', evalMeeting: '', evalSigned: '', failureReasonAnalysis: '' });
-
+  const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   // Feedback state
@@ -133,12 +133,19 @@ export default function ReportsPage() {
       failureReasonAnalysis: form.failureReasonAnalysis || '',
       feedback: '',
       adminFeedback: '',
-      attachments: [],
+      attachments: file ? [{
+        id: 'temp-att-' + tempId,
+        fileName: file.name,
+        filePath: URL.createObjectURL(file),
+        fileType: file.type
+      }] : [],
       createdAt: new Date().toISOString(),
       isSubmitting: true
     };
 
     setShowSubmit(false);
+    const submittedFile = file;
+    setFile(null);
     setForm({ date: getLocalDateString(), content: '', progress: 100, week: getISOWeek(new Date()), nextPlan: '', targetNew: 0, targetContacted: 0, targetConsulting: 0, targetMeeting: 0, targetSigned: 0, evalNew: '', evalContacted: '', evalConsulting: '', evalMeeting: '', evalSigned: '', failureReasonAnalysis: '' });
 
     if (filterDate === tempReport.date && (!selectedEmp || selectedEmp === user?.id)) {
@@ -148,7 +155,19 @@ export default function ReportsPage() {
     try {
       const payload: any = { ...tempReport };
       delete payload.isSubmitting;
-      payload.attachments = [];
+      if (submittedFile) {
+        const formData = new FormData();
+        formData.append('file', submittedFile);
+        const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
+        const uploadData = await uploadRes.json();
+        if (uploadData.success) {
+          payload.attachments = [{ fileName: submittedFile.name, filePath: uploadData.fileUrl, fileType: submittedFile.type }];
+        } else {
+          throw new Error('Lỗi upload file: ' + uploadData.error);
+        }
+      } else {
+        payload.attachments = [];
+      }
       await reportApi.createDailyReport(payload);
       
       const cacheKey = `cached_reports_${selectedEmp}_${filterDate}`;
@@ -158,8 +177,7 @@ export default function ReportsPage() {
       fetchReports();
     } catch (err: any) {
       setReports(prev => prev.filter(r => r.id !== tempId));
-      console.error("Submit Error:", err);
-      alert(err.message || err.response?.data?.error || 'Lỗi nộp báo cáo');
+      alert(err.response?.data?.error || 'Lỗi nộp báo cáo');
     }
     setSubmitting(false);
   };
@@ -307,7 +325,14 @@ export default function ReportsPage() {
 
 
 
-
+                <div>
+                  <label className="form-label">File đính kèm (Ảnh/Tài liệu)</label>
+                  <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 20, border: '2px dashed var(--border)', borderRadius: 8, cursor: 'pointer', background: 'var(--bg-hover)' }}>
+                    <Upload size={24} color="var(--text-muted)" style={{ marginBottom: 8 }} />
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{file ? file.name : 'Click để chọn file'}</span>
+                    <input type="file" style={{ display: 'none' }} onChange={e => setFile(e.target.files?.[0] || null)} />
+                  </label>
+                </div>
               </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setShowSubmit(false)}>Hủy</button>

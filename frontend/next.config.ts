@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
       { protocol: 'http', hostname: 'localhost', port: '5000', pathname: '/uploads/**' },
     ],
   },
-  // Proxy /uploads from backend during development
+  // Proxy /api calls to backend during development
   async rewrites() {
     return [
       {
